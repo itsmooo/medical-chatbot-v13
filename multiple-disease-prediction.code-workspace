@@ -2,6 +2,9 @@
 	"folders": [
 		{
 			"path": "."
+		},
+		{
+			"path": "../OneDrive/Desktop/disease-prediction-dashboard"
 		}
 	],
 	"settings": {}

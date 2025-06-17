@@ -1,18 +1,27 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import fetch from 'node-fetch';
+import { Prediction } from './entities/prediction.entity';
+import * as PDFDocument from 'pdfkit';
+import { Response } from 'express';
 
 @Injectable()
 export class ModelApiService {
   private readonly logger = new Logger(ModelApiService.name);
   private readonly apiUrl: string;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    @InjectRepository(Prediction)
+    private predictionsRepository: Repository<Prediction>,
+  ) {
     this.apiUrl = this.configService.get<string>('MODEL_API_URL') || 'http://localhost:5000';
     this.logger.log(`Model API URL: ${this.apiUrl}`);
   }
 
-  async predictDisease(symptoms: string) {
+  async predictDisease(symptoms: string, userId?: string) {
     try {
       const response = await fetch(`${this.apiUrl}/predict`, {
         method: 'POST',
@@ -27,7 +36,20 @@ export class ModelApiService {
         throw new Error(`API returned ${response.status}: ${errorText}`);
       }
 
-      return await response.json();
+      const result = await response.json();
+      
+      // Save prediction if userId is provided
+      if (userId) {
+        const prediction = this.predictionsRepository.create({
+          symptoms,
+          diseases: result.diseases || [],
+          response: result.response,
+          userId
+        });
+        await this.predictionsRepository.save(prediction);
+      }
+      
+      return result;
     } catch (error) {
       this.logger.error(`Error calling model API: ${error.message}`);
       throw new HttpException(
@@ -35,6 +57,62 @@ export class ModelApiService {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  async getUserPredictions(userId: string) {
+    return this.predictionsRepository.find({
+      where: { userId },
+      order: { createdAt: 'DESC' }
+    });
+  }
+
+  async getPredictionById(id: string) {
+    return this.predictionsRepository.findOne({
+      where: { id }
+    });
+  }
+  
+  async getAllPredictions() {
+    return this.predictionsRepository.find({
+      order: { createdAt: 'DESC' }
+    });
+  }
+  
+  async generatePredictionPdf(prediction: Prediction, res: Response) {
+    const doc = new PDFDocument();
+    
+    // Set response headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=prediction-${prediction.id}.pdf`);
+    
+    // Pipe the PDF document to the response
+    doc.pipe(res);
+    
+    // Add content to PDF
+    doc.fontSize(25).text('Disease Prediction Report', { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(14).text(`Date: ${prediction.createdAt.toLocaleDateString()}`, { align: 'right' });
+    doc.moveDown();
+    
+    doc.fontSize(16).text('Patient Symptoms:', { underline: true });
+    doc.fontSize(12).text(prediction.symptoms);
+    doc.moveDown();
+    
+    doc.fontSize(16).text('Analysis Results:', { underline: true });
+    doc.fontSize(12).text(prediction.response);
+    doc.moveDown();
+    
+    if (prediction.diseases && prediction.diseases.length > 0) {
+      doc.fontSize(16).text('Possible Diseases:', { underline: true });
+      prediction.diseases.forEach((disease, index) => {
+        doc.fontSize(12).text(`${index + 1}. ${disease.name} - Confidence: ${disease.confidence}%`);
+      });
+    }
+    
+    // Finalize the PDF and end the stream
+    doc.end();
+    
+    return res;
   }
 
   async checkHealth() {

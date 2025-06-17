@@ -1,25 +1,31 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { ModelApiService } from '../symptom-analyzer/model-api.service';
+import { ChatMessage, MessageSender } from './entities/chat-message.entity';
 
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
-  private chatHistory: Record<string, any[]> = {};
 
-  constructor(private readonly modelApiService: ModelApiService) {}
+  constructor(
+    private readonly modelApiService: ModelApiService,
+    @InjectRepository(ChatMessage)
+    private chatMessageRepository: Repository<ChatMessage>
+  ) {}
 
   async processMessage(message: string, userId: string = 'anonymous') {
     try {
-      // Store user message in history
-      this.addMessageToHistory(userId, 'user', message);
+      // Store user message in database
+      await this.addMessageToHistory(userId, MessageSender.USER, message);
 
       // Analyze symptoms using the model API
-      const analysis = await this.modelApiService.predictDisease(message);
+      const analysis = await this.modelApiService.predictDisease(message, userId);
 
-      // Store bot response in history
-      this.addMessageToHistory(
+      // Store bot response in database
+      await this.addMessageToHistory(
         userId,
-        'bot',
+        MessageSender.BOT,
         analysis.response,
         analysis.diseases,
       );
@@ -31,8 +37,8 @@ export class ChatService {
       const fallbackResponse =
         "I'm sorry, I couldn't analyze your symptoms properly. Could you provide more details about how you're feeling?";
 
-      // Store error response in history
-      this.addMessageToHistory(userId, 'bot', fallbackResponse);
+      // Store error response in database
+      await this.addMessageToHistory(userId, MessageSender.BOT, fallbackResponse);
 
       return {
         response: fallbackResponse,
@@ -42,31 +48,35 @@ export class ChatService {
     }
   }
 
-  getChatHistory(userId: string = 'anonymous') {
-    return this.chatHistory[userId] || [];
+  async getChatHistory(userId: string = 'anonymous') {
+    return this.chatMessageRepository.find({
+      where: { userId },
+      order: { timestamp: 'ASC' }
+    });
+  }
+  
+  async getAllChatHistory() {
+    return this.chatMessageRepository.find({
+      order: { timestamp: 'ASC' },
+      relations: ['user']
+    });
   }
 
-  private addMessageToHistory(
+  private async addMessageToHistory(
     userId: string,
-    sender: 'user' | 'bot',
+    sender: MessageSender,
     content: string,
     diseases: any[] = [],
   ) {
-    if (!this.chatHistory[userId]) {
-      this.chatHistory[userId] = [];
-    }
-
-    this.chatHistory[userId].push({
-      id: Date.now().toString(),
+    // Create new chat message entity
+    const chatMessage = this.chatMessageRepository.create({
       sender,
       content,
-      timestamp: new Date(),
-      ...(sender === 'bot' && diseases.length > 0 ? { diseases } : {}),
+      userId,
+      diseases: sender === MessageSender.BOT && diseases.length > 0 ? diseases : [],
     });
 
-    // Limit history size
-    if (this.chatHistory[userId].length > 100) {
-      this.chatHistory[userId] = this.chatHistory[userId].slice(-100);
-    }
+    // Save to database
+    return this.chatMessageRepository.save(chatMessage);
   }
 }
