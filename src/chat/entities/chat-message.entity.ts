@@ -1,4 +1,5 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 import { User } from '../../auth/entities/user.entity';
 
 export enum MessageSender {
@@ -6,30 +7,28 @@ export enum MessageSender {
   BOT = 'bot',
 }
 
-@Entity()
-export class ChatMessage {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+export type ChatMessageDocument = ChatMessage & Document;
 
-  @Column({
-    type: 'enum',
-    enum: MessageSender,
+@Schema({ timestamps: { createdAt: 'timestamp' } })
+export class ChatMessage {
+  @Prop({
+    type: String,
+    enum: Object.values(MessageSender),
+    required: true
   })
   sender: MessageSender;
 
-  @Column('text')
+  @Prop({ required: true })
   content: string;
 
-  @Column('json', { nullable: true })
+  @Prop({ type: [Object], default: [] })
   diseases: any[];
 
-  @ManyToOne(() => User, { eager: false })
-  @JoinColumn({ name: 'userId' })
-  user: User;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
+  userId: Types.ObjectId;
 
-  @Column()
-  userId: string;
-
-  @CreateDateColumn()
+  @Prop()
   timestamp: Date;
 }
+
+export const ChatMessageSchema = SchemaFactory.createForClass(ChatMessage);

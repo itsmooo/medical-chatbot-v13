@@ -1,9 +1,9 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
 import fetch from 'node-fetch';
-import { Prediction } from './entities/prediction.entity';
+import { Prediction, PredictionDocument } from './entities/prediction.entity';
 import * as PDFDocument from 'pdfkit';
 import { Response } from 'express';
 
@@ -14,8 +14,8 @@ export class ModelApiService {
 
   constructor(
     private configService: ConfigService,
-    @InjectRepository(Prediction)
-    private predictionsRepository: Repository<Prediction>,
+    @InjectModel(Prediction.name)
+    private predictionModel: Model<PredictionDocument>,
   ) {
     this.apiUrl = this.configService.get<string>('MODEL_API_URL') || 'http://localhost:5000';
     this.logger.log(`Model API URL: ${this.apiUrl}`);
@@ -40,13 +40,13 @@ export class ModelApiService {
       
       // Save prediction if userId is provided
       if (userId) {
-        const prediction = this.predictionsRepository.create({
+        const prediction = new this.predictionModel({
           symptoms,
           diseases: result.diseases || [],
           response: result.response,
-          userId
+          userId: new Types.ObjectId(userId)
         });
-        await this.predictionsRepository.save(prediction);
+        await prediction.save();
       }
       
       return result;
@@ -60,30 +60,28 @@ export class ModelApiService {
   }
 
   async getUserPredictions(userId: string) {
-    return this.predictionsRepository.find({
-      where: { userId },
-      order: { createdAt: 'DESC' }
-    });
+    return this.predictionModel.find({ userId: new Types.ObjectId(userId) })
+      .sort({ createdAt: -1 })
+      .exec();
   }
 
   async getPredictionById(id: string) {
-    return this.predictionsRepository.findOne({
-      where: { id }
-    });
+    return this.predictionModel.findById(id).exec();
   }
   
   async getAllPredictions() {
-    return this.predictionsRepository.find({
-      order: { createdAt: 'DESC' }
-    });
+    return this.predictionModel.find()
+      .sort({ createdAt: -1 })
+      .exec();
   }
   
-  async generatePredictionPdf(prediction: Prediction, res: Response) {
+  async generatePredictionPdf(prediction: PredictionDocument, res: Response) {
     const doc = new PDFDocument();
     
     // Set response headers for PDF download
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=prediction-${prediction.id}.pdf`);
+    const predictionId = prediction._id instanceof Types.ObjectId ? prediction._id.toString() : String(prediction._id);
+    res.setHeader('Content-Disposition', `attachment; filename=prediction-${predictionId}.pdf`);
     
     // Pipe the PDF document to the response
     doc.pipe(res);

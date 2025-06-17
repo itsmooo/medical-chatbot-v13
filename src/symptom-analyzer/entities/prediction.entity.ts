@@ -1,27 +1,25 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 import { User } from '../../auth/entities/user.entity';
 
-@Entity()
-export class Prediction {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+export type PredictionDocument = Prediction & Document;
 
-  @Column('text')
+@Schema({ timestamps: true })
+export class Prediction {
+  @Prop({ required: true })
   symptoms: string;
 
-  @Column('json')
+  @Prop({ type: [Object], default: [] })
   diseases: any[];
 
-  @Column('text')
+  @Prop({ required: true })
   response: string;
 
-  @ManyToOne(() => User, { eager: false })
-  @JoinColumn({ name: 'userId' })
-  user: User;
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
+  userId: Types.ObjectId;
 
-  @Column()
-  userId: string;
-
-  @CreateDateColumn()
+  @Prop()
   createdAt: Date;
 }
+
+export const PredictionSchema = SchemaFactory.createForClass(Prediction);

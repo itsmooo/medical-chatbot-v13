@@ -289,8 +289,8 @@ const ChatInterface = () => {
             )}
           >
             {message.sender === 'ai' && (
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                <Activity size={16} className="text-blue-600" />
+              <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <Activity size={16} className="text-red-600" />
               </div>
             )}
 
@@ -299,7 +299,7 @@ const ChatInterface = () => {
                 'rounded-2xl p-3 max-w-[85%] text-sm',
                 message.sender === 'ai'
                   ? 'bg-slate-50 rounded-tl-none border'
-                  : 'bg-blue-600 text-white rounded-tr-none',
+                  : 'bg-red-600 text-white rounded-tr-none',
               )}
             >
               <div className="space-y-1">
@@ -312,7 +312,7 @@ const ChatInterface = () => {
               <div
                 className={cn(
                   'text-xs mt-2 opacity-70',
-                  message.sender === 'ai' ? 'text-slate-500' : 'text-blue-100',
+                  message.sender === 'ai' ? 'text-slate-500' : 'text-red-100',
                 )}
               >
                 {message.timestamp.toLocaleTimeString([], {
@@ -332,8 +332,8 @@ const ChatInterface = () => {
 
         {isTyping && (
           <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-              <Activity size={16} className="text-blue-600" />
+            <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+              <Activity size={16} className="text-red-600" />
             </div>
             <div className="bg-slate-50 rounded-2xl rounded-tl-none p-3 border">
               <div className="flex gap-1">
@@ -362,13 +362,13 @@ const ChatInterface = () => {
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Describe your symptoms (e.g., headache, fever, nausea)..."
-            className="pr-14 focus-visible:ring-blue-500 border-slate-300"
+            className="pr-14 focus-visible:ring-red-500 border-slate-300"
             disabled={isTyping}
           />
           <Button
             onClick={handleSend}
             disabled={inputValue.trim() === '' || isTyping}
-            className="absolute right-1 top-1 h-8 w-8 p-0 rounded-full bg-blue-600 hover:bg-blue-700"
+            className="absolute right-1 top-1 h-8 w-8 p-0 rounded-full bg-red-600 hover:bg-red-700"
           >
             {isTyping ? (
               <Loader2 size={16} className="animate-spin" />

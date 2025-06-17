@@ -1,14 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { MongooseModule } from '@nestjs/mongoose';
 import { SymptomAnalyzerController } from './symptom-analyzer.controller';
 import { ModelApiService } from './model-api.service';
-import { Prediction } from './entities/prediction.entity';
+import { Prediction, PredictionSchema } from './entities/prediction.entity';
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([Prediction])
+    MongooseModule.forFeature([{ name: Prediction.name, schema: PredictionSchema }])
   ],
   controllers: [SymptomAnalyzerController],
   providers: [ModelApiService],

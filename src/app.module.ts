@@ -1,30 +1,18 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ChatModule } from './chat/chat.module';
 import { SymptomAnalyzerModule } from './symptom-analyzer/symptom-analyzer.module';
 import { AuthModule } from './auth/auth.module';
-import { User } from './auth/entities/user.entity';
-import { Prediction } from './symptom-analyzer/entities/prediction.entity';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '5432'),
-      username: process.env.DB_USERNAME || 'postgres',
-      password: process.env.DB_PASSWORD || 'postgres',
-      database: process.env.DB_DATABASE || 'disease_prediction',
-      entities: [User, Prediction],
-      synchronize: true, // Set to false in production
-      autoLoadEntities: true,
-    }),
+    MongooseModule.forRoot(process.env.MONGO_URI || 'mongodb+srv://mohamedadan:1234@cluster0.4bijvlo.mongodb.net/medicalDB'),
     AuthModule,
     ChatModule,
     SymptomAnalyzerModule,

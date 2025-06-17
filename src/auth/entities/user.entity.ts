@@ -1,34 +1,37 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Schema as MongooseSchema } from 'mongoose';
+import { Types } from 'mongoose';
 
 export enum UserRole {
   PATIENT = 'patient',
   ADMIN = 'admin',
 }
 
-@Entity()
-export class User {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+export type UserDocument = User & Document;
 
-  @Column()
+@Schema({ timestamps: true })
+export class User {
+  @Prop({ required: true })
   name: string;
 
-  @Column({ unique: true })
+  @Prop({ required: true, unique: true })
   email: string;
 
-  @Column()
+  @Prop({ required: true })
   password: string;
 
-  @Column({
-    type: 'enum',
-    enum: UserRole,
-    default: UserRole.PATIENT,
+  @Prop({ 
+    type: String,
+    enum: Object.values(UserRole),
+    default: UserRole.PATIENT 
   })
   role: UserRole;
 
-  @CreateDateColumn()
+  @Prop()
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @Prop()
   updatedAt: Date;
 }
+
+export const UserSchema = SchemaFactory.createForClass(User);

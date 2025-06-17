@@ -3,15 +3,18 @@
 import { useState, useEffect } from "react"
 import { cn } from "../lib/utils"
 import { Button } from "../../components/ui/button"
-import { Menu, X, MessageCircle, LogIn, UserPlus } from "lucide-react"
+import { Menu, X, MessageCircle, LogIn, UserPlus, User } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { isAuthenticated, removeToken } from "../lib/auth"
+import { isAuthenticated, removeToken, getAuthUser } from "../lib/auth"
 
 const Header = () => {
   const [scrolled, setScrolled] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [userName, setUserName] = useState('')
+  const [userEmail, setUserEmail] = useState('')
+  const [userRole, setUserRole] = useState('')
   const pathname = usePathname()
 
   useEffect(() => {
@@ -30,11 +33,40 @@ const Header = () => {
   
   // Check authentication status
   useEffect(() => {
-    setIsLoggedIn(isAuthenticated())
+    const isLoggedInNow = isAuthenticated();
+    setIsLoggedIn(isLoggedInNow);
+    
+    if (isLoggedInNow) {
+      const user = getAuthUser();
+      console.log('User info from token:', user); // Debug log
+      if (user) {
+        setUserName(user.name || '');
+        setUserEmail(user.email || '');
+        setUserRole(user.role || '');
+      }
+    } else {
+      setUserName('');
+      setUserEmail('');
+      setUserRole('');
+    }
     
     // Listen for storage events (for when user logs in/out in another tab)
     const handleStorageChange = () => {
-      setIsLoggedIn(isAuthenticated())
+      const isLoggedInAfterChange = isAuthenticated();
+      setIsLoggedIn(isLoggedInAfterChange);
+      
+      if (isLoggedInAfterChange) {
+        const user = getAuthUser();
+        if (user) {
+          setUserName(user.name || '');
+          setUserEmail(user.email || '');
+          setUserRole(user.role || '');
+        }
+      } else {
+        setUserName('');
+        setUserEmail('');
+        setUserRole('');
+      }
     }
     
     window.addEventListener('storage', handleStorageChange)
@@ -118,18 +150,30 @@ const Header = () => {
             
             {/* Auth links for mobile */}
             {isLoggedIn ? (
-              <button
-                className="text-lg font-medium py-2 border-b border-gray-100 transition-colors text-foreground hover:text-primary flex items-center"
-                onClick={() => {
-                  removeToken();
-                  setIsLoggedIn(false);
-                  setMobileMenuOpen(false);
-                  window.location.href = '/';
-                }}
-              >
-                <LogIn size={16} className="mr-2" />
-                Sign Out
-              </button>
+              <>
+                <Link
+                  href="/profile"
+                  className="text-lg font-medium py-2 border-b border-gray-100 transition-colors text-foreground hover:text-primary flex items-center"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <User size={16} className="mr-2" />
+                  <span className="font-medium">{userName || 'Profile'}</span>
+                  {userRole && <span className="text-xs text-gray-500 ml-2">({userRole})</span>}
+                </Link>
+                <button
+                  className="text-lg font-medium py-2 border-b border-gray-100 transition-colors text-foreground hover:text-primary flex items-center"
+                  onClick={() => {
+                    removeToken();
+                    setIsLoggedIn(false);
+                    setUserName('');
+                    setMobileMenuOpen(false);
+                    window.location.href = '/';
+                  }}
+                >
+                  <LogIn size={16} className="mr-2" />
+                  Sign Out
+                </button>
+              </>
             ) : (
               <>
                 <Link
@@ -157,6 +201,15 @@ const Header = () => {
         <div className="hidden md:flex items-center space-x-4">
           {isLoggedIn ? (
             <>
+              <Link href="/profile" className="flex items-center mr-2 hover:text-primary transition-colors">
+                <div className="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center mr-2">
+                  {userName ? userName.charAt(0).toUpperCase() : 'U'}
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-medium">{userName || 'User'}</span>
+                  <span className="text-xs text-gray-500">{userRole || ''}</span>
+                </div>
+              </Link>
               <Link href="/chat">
                 <Button className="bg-primary hover:bg-primary/90 text-white">
                   <MessageCircle size={16} className="mr-2" />
@@ -168,6 +221,7 @@ const Header = () => {
                 onClick={() => {
                   removeToken();
                   setIsLoggedIn(false);
+                  setUserName('');
                   window.location.href = '/';
                 }}
               >

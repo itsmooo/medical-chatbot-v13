@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
 import { ModelApiService } from '../symptom-analyzer/model-api.service';
-import { ChatMessage, MessageSender } from './entities/chat-message.entity';
+import { ChatMessage, ChatMessageDocument, MessageSender } from './entities/chat-message.entity';
 
 @Injectable()
 export class ChatService {
@@ -10,8 +10,8 @@ export class ChatService {
 
   constructor(
     private readonly modelApiService: ModelApiService,
-    @InjectRepository(ChatMessage)
-    private chatMessageRepository: Repository<ChatMessage>
+    @InjectModel(ChatMessage.name)
+    private chatMessageModel: Model<ChatMessageDocument>
   ) {}
 
   async processMessage(message: string, userId: string = 'anonymous') {
@@ -49,17 +49,18 @@ export class ChatService {
   }
 
   async getChatHistory(userId: string = 'anonymous') {
-    return this.chatMessageRepository.find({
-      where: { userId },
-      order: { timestamp: 'ASC' }
-    });
+    return this.chatMessageModel.find({
+      userId: userId !== 'anonymous' ? new Types.ObjectId(userId) : userId
+    })
+    .sort({ timestamp: 1 })
+    .exec();
   }
   
   async getAllChatHistory() {
-    return this.chatMessageRepository.find({
-      order: { timestamp: 'ASC' },
-      relations: ['user']
-    });
+    return this.chatMessageModel.find()
+      .sort({ timestamp: 1 })
+      .populate('userId', 'name email') // Populate user fields we need
+      .exec();
   }
 
   private async addMessageToHistory(
@@ -68,15 +69,15 @@ export class ChatService {
     content: string,
     diseases: any[] = [],
   ) {
-    // Create new chat message entity
-    const chatMessage = this.chatMessageRepository.create({
+    // Create new chat message document
+    const chatMessage = new this.chatMessageModel({
       sender,
       content,
-      userId,
+      userId: userId !== 'anonymous' ? new Types.ObjectId(userId) : userId,
       diseases: sender === MessageSender.BOT && diseases.length > 0 ? diseases : [],
     });
 
     // Save to database
-    return this.chatMessageRepository.save(chatMessage);
+    return chatMessage.save();
   }
 }

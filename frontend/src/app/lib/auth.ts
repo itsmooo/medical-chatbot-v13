@@ -44,7 +44,20 @@ export const getAuthUser = (): any => {
         .join('')
     );
     
-    return JSON.parse(jsonPayload);
+    const payload = JSON.parse(jsonPayload);
+    console.log('Decoded JWT payload:', payload); // Debug log to see the actual payload structure
+    
+    // Return user object with consistent structure for frontend components
+    // Try different possible locations for the name field
+    const userName = payload.name || payload.username || payload.displayName || '';
+    console.log('Extracted user name:', userName);
+    
+    return {
+      id: payload.sub,
+      name: userName || 'Unknown',
+      email: payload.email,
+      role: payload.role
+    };
   } catch (error) {
     console.error('Error decoding token:', error);
     removeToken(); // Remove invalid token
