@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { cn } from "../lib/utils"
 import { Button } from "../../components/ui/button"
-import { Menu, X, MessageCircle, LogIn, UserPlus, User, History } from "lucide-react"
+import { Menu, X, MessageCircle, LogIn, UserPlus, User, History, ChevronDown, Settings, LogOut } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { isAuthenticated, removeToken, getAuthUser } from "../lib/auth"
@@ -11,11 +11,13 @@ import { isAuthenticated, removeToken, getAuthUser } from "../lib/auth"
 const Header = () => {
   const [scrolled, setScrolled] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [userName, setUserName] = useState('')
   const [userEmail, setUserEmail] = useState('')
   const [userRole, setUserRole] = useState('')
   const pathname = usePathname()
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handleScroll = () => {
@@ -30,6 +32,20 @@ const Header = () => {
       window.removeEventListener("scroll", handleScroll)
     }
   }, [scrolled])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setUserDropdownOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [])
   
   // Check authentication status
   useEffect(() => {
@@ -86,6 +102,16 @@ const Header = () => {
   const isActive = (path: string) => {
     if (path === "/") return pathname === "/"
     return pathname.includes(path.replace("/", ""))
+  }
+
+  const handleSignOut = () => {
+    removeToken();
+    setIsLoggedIn(false);
+    setUserName('');
+    setUserEmail('');
+    setUserRole('');
+    setUserDropdownOpen(false);
+    window.location.href = '/';
   }
 
   return (
@@ -171,14 +197,11 @@ const Header = () => {
                 <button
                   className="text-lg font-medium py-2 border-b border-gray-100 transition-colors text-foreground hover:text-primary flex items-center"
                   onClick={() => {
-                    removeToken();
-                    setIsLoggedIn(false);
-                    setUserName('');
+                    handleSignOut();
                     setMobileMenuOpen(false);
-                    window.location.href = '/';
                   }}
                 >
-                  <LogIn size={16} className="mr-2" />
+                  <LogOut size={16} className="mr-2" />
                   Sign Out
                 </button>
               </>
@@ -209,39 +232,89 @@ const Header = () => {
         <div className="hidden md:flex items-center space-x-4">
           {isLoggedIn ? (
             <>
-              <Link href="/profile" className="flex items-center mr-2 hover:text-primary transition-colors">
-                <div className="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center mr-2">
-                  {userName ? userName.charAt(0).toUpperCase() : 'U'}
-                </div>
-                <div className="flex flex-col">
-                  <span className="font-medium">{userName || 'User'}</span>
-                  <span className="text-xs text-gray-500">{userRole || ''}</span>
-                </div>
-              </Link>
               <Link href="/chat">
                 <Button className="bg-primary hover:bg-primary/90 text-white">
                   <MessageCircle size={16} className="mr-2" />
                   Chat Diagnosis
                 </Button>
               </Link>
-              <Link href="/history">
-                <Button variant="outline" className="ml-2">
-                  <History size={16} className="mr-2" />
-                  Medical History
-                </Button>
-              </Link>
-              <Button 
-                variant="ghost" 
-                onClick={() => {
-                  removeToken();
-                  setIsLoggedIn(false);
-                  setUserName('');
-                  window.location.href = '/';
-                }}
-              >
-                <LogIn size={16} className="mr-2" />
-                Sign Out
-              </Button>
+              
+              {/* User Dropdown */}
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                  className="flex items-center space-x-2 hover:bg-gray-100 rounded-lg px-3 py-2 transition-colors"
+                >
+                  <div className="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center">
+                    {userName ? userName.charAt(0).toUpperCase() : 'U'}
+                  </div>
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium text-sm">{userName || 'User'}</span>
+                    {userRole && <span className="text-xs text-gray-500">{userRole}</span>}
+                  </div>
+                  <ChevronDown 
+                    size={16} 
+                    className={cn(
+                      "transition-transform duration-200",
+                      userDropdownOpen ? "rotate-180" : ""
+                    )}
+                  />
+                </button>
+
+                {/* Dropdown Menu */}
+                {userDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                    {/* User Info Header */}
+                    <div className="px-4 py-3 border-b border-gray-100">
+                      <div className="flex items-center space-x-3">
+                        <div className="h-10 w-10 rounded-full bg-primary text-white flex items-center justify-center">
+                          {userName ? userName.charAt(0).toUpperCase() : 'U'}
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="font-medium text-sm">{userName || 'User'}</span>
+                          <span className="text-xs text-gray-500">{userEmail}</span>
+                          {userRole && (
+                            <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full mt-1 w-fit">
+                              {userRole}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Menu Items */}
+                    <div className="py-1">
+                      <Link
+                        href="/profile"
+                        className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                        onClick={() => setUserDropdownOpen(false)}
+                      >
+                        <User size={16} className="mr-3" />
+                        Profile Settings
+                      </Link>
+                      
+                      <Link
+                        href="/history"
+                        className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                        onClick={() => setUserDropdownOpen(false)}
+                      >
+                        <History size={16} className="mr-3" />
+                        Medical History
+                      </Link>
+                      
+                      <div className="border-t border-gray-100 my-1"></div>
+                      
+                      <button
+                        onClick={handleSignOut}
+                        className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        <LogOut size={16} className="mr-3" />
+                        Sign Out
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <>

@@ -3,27 +3,32 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { MulterModule } from '@nestjs/platform-express';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { User, UserDocument, UserSchema } from './entities/user.entity';
+import { User, UserSchema } from './entities/user.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 
 @Module({
   imports: [
-    PassportModule,
+    ConfigModule,
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+    PassportModule,
+    MulterModule.register({
+      dest: './uploads',
+    }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      inject: [ConfigService],
       useFactory: async (configService: ConfigService) => ({
         secret: configService.get<string>('JWT_SECRET') || 'super-secret-key-change-in-production',
-        signOptions: { expiresIn: '1d' },
+        signOptions: { expiresIn: '24h' },
       }),
+      inject: [ConfigService],
     }),
   ],
-  controllers: [AuthController],
   providers: [AuthService, JwtStrategy, LocalStrategy],
+  controllers: [AuthController],
   exports: [AuthService],
 })
 export class AuthModule {}

@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -31,7 +31,7 @@ export class AuthService {
       name: createUserDto.name,
       email: createUserDto.email,
       password: hashedPassword,
-      role: UserRole.PATIENT, // Default role is patient
+      role: UserRole.USER, // Default role is user
     });
 
     const savedUser = await newUser.save();
@@ -132,5 +132,29 @@ export class AuthService {
     });
 
     return adminUser.save();
+  }
+
+  async findUserById(userId: string): Promise<UserDocument> {
+    const user = await this.userModel.findById(userId).exec();
+    
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    
+    return user;
+  }
+
+  async updateUserProfileImage(userId: string, profileImageFilename: string): Promise<UserDocument> {
+    const user = await this.userModel.findByIdAndUpdate(
+      userId,
+      { profileImage: profileImageFilename },
+      { new: true }
+    ).exec();
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return user;
   }
 }

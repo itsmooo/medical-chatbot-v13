@@ -1,15 +1,14 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Schema as MongooseSchema } from 'mongoose';
-import { Types } from 'mongoose';
-
-export enum UserRole {
-  PATIENT = 'patient',
-  ADMIN = 'admin',
-}
+import { Document } from 'mongoose';
 
 export type UserDocument = User & Document;
 
-@Schema({ timestamps: true })
+export enum UserRole {
+  USER = 'user',
+  ADMIN = 'admin',
+}
+
+@Schema()
 export class User {
   @Prop({ required: true })
   name: string;
@@ -20,18 +19,14 @@ export class User {
   @Prop({ required: true })
   password: string;
 
-  @Prop({ 
-    type: String,
-    enum: Object.values(UserRole),
-    default: UserRole.PATIENT 
-  })
+  @Prop({ enum: UserRole, default: UserRole.USER })
   role: UserRole;
 
   @Prop()
-  createdAt: Date;
+  profileImage?: string;
 
-  @Prop()
-  updatedAt: Date;
+  @Prop({ default: Date.now })
+  createdAt: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

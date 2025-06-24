@@ -71,7 +71,11 @@ export const authFetch = async (url: string, options: RequestInit = {}): Promise
   
   // Create a proper Headers object
   const headers = new Headers(options.headers);
-  headers.set('Content-Type', 'application/json');
+  
+  // Only set Content-Type to JSON if it's not already set and not a multipart request
+  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+  }
   
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
