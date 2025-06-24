@@ -88,8 +88,14 @@ export default function SigninPage() {
       // Store token using auth utility
       setToken(data.token);
       
-      // Redirect to dashboard or home page
-      router.push('/');
+      // Check if user is admin and redirect accordingly
+      if (data.user?.role === 'admin') {
+        // Redirect to admin dashboard
+        window.location.href = 'http://localhost:3001/login?token=' + encodeURIComponent(data.token);
+      } else {
+        // Redirect regular users to home page
+        router.push('/');
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to sign in');
     } finally {

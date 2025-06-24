@@ -7,6 +7,7 @@ import { Input } from '../../components/ui/input';
 import { Send, Activity, User, Loader2, AlertCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import axios from 'axios';
+import { getAuthUser, isAuthenticated } from '../lib/auth';
 
 interface Message {
   id: string;
@@ -108,22 +109,44 @@ const ChatInterface = () => {
     return response;
   };
 
-  const handleSend = async () => {
-    if (inputValue.trim() === '') return;
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputValue.trim() || isTyping) return;
 
-    const userInput = inputValue.trim();
+    // Get user ID if authenticated
+    let userId = 'anonymous';
+    if (isAuthenticated()) {
+      const user = getAuthUser();
+      if (user && user.id) {
+        userId = user.id;
+        console.log('Authenticated user:', user.name, 'ID:', userId);
+      }
+    }
 
-    // Add user message
-    const newUserMessage: Message = {
+    // Add user message to state
+    const userMessage: Message = {
       id: Date.now().toString(),
-      text: userInput,
+      text: inputValue,
       sender: 'user',
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, newUserMessage]);
-    setInputValue('');
+    setMessages((prev) => [...prev, userMessage]);
     setIsTyping(true);
+
+    // Save user message to database
+    try {
+      await axios.post('http://localhost:5000/chat/message', {
+        user_id: userId,
+        message: inputValue,
+        sender: 'user',
+        timestamp: new Date().toISOString()
+      });
+      console.log('User message saved to database');
+    } catch (chatError) {
+      console.error('Error saving user message:', chatError);
+      // Continue with prediction even if message saving fails
+    }
 
     try {
       console.log('Sending request to backend...');
@@ -131,7 +154,8 @@ const ChatInterface = () => {
       const response = await axios.post<ApiResponse>(
         'http://localhost:5000/predict',
         {
-          symptoms: userInput,
+          symptoms: inputValue,
+          user_id: userId
         },
         {
           // timeout: 30000, // 30 second timeout
@@ -174,6 +198,20 @@ const ChatInterface = () => {
       };
 
       setMessages((prev) => [...prev, newAiMessage]);
+      
+      // Save AI response to database
+      try {
+        await axios.post('http://localhost:5000/chat/message', {
+          user_id: userId,
+          message: finalResponse,
+          sender: 'ai',
+          prediction_id: response.data.prediction_id || null,
+          timestamp: new Date().toISOString()
+        });
+        console.log('AI response saved to database');
+      } catch (chatError) {
+        console.error('Error saving AI response:', chatError);
+      }
     } catch (error) {
       console.error('Error in prediction:', error);
 
@@ -208,7 +246,7 @@ const ChatInterface = () => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      handleSubmit(e);
     }
   };
 
@@ -366,9 +404,9 @@ const ChatInterface = () => {
             disabled={isTyping}
           />
           <Button
-            onClick={handleSend}
-            disabled={inputValue.trim() === '' || isTyping}
             className="absolute right-1 top-1 h-8 w-8 p-0 rounded-full bg-red-600 hover:bg-red-700"
+            onClick={(e) => handleSubmit(e)}
+            disabled={inputValue.trim() === '' || isTyping}
           >
             {isTyping ? (
               <Loader2 size={16} className="animate-spin" />

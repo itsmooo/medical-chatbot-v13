@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { getAuthUser, isAuthenticated } from '../lib/auth';
 import { useRouter } from 'next/navigation';
 import { UserProfile } from '../../components/UserProfile';
+import Header from '../components/header';
+import Footer from '../components/footer';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -30,8 +32,11 @@ export default function ProfilePage() {
   }
   
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="max-w-md mx-auto bg-white rounded-lg shadow-md overflow-hidden">
+    <>
+      <Header />
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-teal-50 pt-20">
+        <div className="container mx-auto px-4 py-8">
+          <div className="max-w-md mx-auto bg-white rounded-lg shadow-md overflow-hidden">
         <div className="bg-primary text-white px-6 py-4">
           <h1 className="text-2xl font-bold">User Profile</h1>
         </div>
@@ -58,8 +63,10 @@ export default function ProfilePage() {
               <p className="text-gray-700 capitalize">{user.role}</p>
             </div>
           </div>
+          </div>
         </div>
       </div>
-    </div>
+      <Footer />
+    </>
   );
 }

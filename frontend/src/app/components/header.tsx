@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { cn } from "../lib/utils"
 import { Button } from "../../components/ui/button"
-import { Menu, X, MessageCircle, LogIn, UserPlus, User } from "lucide-react"
+import { Menu, X, MessageCircle, LogIn, UserPlus, User, History } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { isAuthenticated, removeToken, getAuthUser } from "../lib/auth"
@@ -160,6 +160,14 @@ const Header = () => {
                   <span className="font-medium">{userName || 'Profile'}</span>
                   {userRole && <span className="text-xs text-gray-500 ml-2">({userRole})</span>}
                 </Link>
+                <Link
+                  href="/history"
+                  className="text-lg font-medium py-2 border-b border-gray-100 transition-colors text-foreground hover:text-primary flex items-center"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <History size={16} className="mr-2" />
+                  Medical History
+                </Link>
                 <button
                   className="text-lg font-medium py-2 border-b border-gray-100 transition-colors text-foreground hover:text-primary flex items-center"
                   onClick={() => {
@@ -214,6 +222,12 @@ const Header = () => {
                 <Button className="bg-primary hover:bg-primary/90 text-white">
                   <MessageCircle size={16} className="mr-2" />
                   Chat Diagnosis
+                </Button>
+              </Link>
+              <Link href="/history">
+                <Button variant="outline" className="ml-2">
+                  <History size={16} className="mr-2" />
+                  Medical History
                 </Button>
               </Link>
               <Button 

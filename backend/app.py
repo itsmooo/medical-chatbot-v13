@@ -37,17 +37,49 @@ except Exception as e:
     translator = None
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=['http://localhost:3000', 'http://localhost:5173', 'http://localhost:8080'], 
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+     allow_headers=['Content-Type', 'Authorization'])
 
 # MongoDB setup
+# Initialize MongoDB collections as None first
+predictions_collection = None
+feedback_collection = None
+chat_messages_collection = None
+
 try:
-    client = MongoClient("mongodb://localhost:27017")
+    # Try to connect to MongoDB with a timeout to avoid hanging
+    mongo_uri = os.getenv('MONGODB_URI', 'mongodb+srv://mohamedadan:1234@cluster0.4bijvlo.mongodb.net/medicalDB')
+    logger.info(f'Attempting to connect to MongoDB at {mongo_uri}')
+    client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+    
+    # Force a connection to verify it works
+    client.server_info()
+    
     db = client.DiseasePrediction
     predictions_collection = db.predictions
     feedback_collection = db.feedback
-    logger.info('✅ MongoDB connected successfully')
+    
+    # Test inserting and retrieving a document to verify full functionality
+    test_doc_id = predictions_collection.insert_one({'test': True, 'timestamp': datetime.utcnow()}).inserted_id
+    test_doc = predictions_collection.find_one({'_id': test_doc_id})
+    predictions_collection.delete_one({'_id': test_doc_id})
+    
+    # Create chat_messages collection if it doesn't exist
+    if 'chat_messages' not in db.list_collection_names():
+        db.create_collection('chat_messages')
+        logger.info('Created chat_messages collection')
+    chat_messages_collection = db.chat_messages
+    
+    if test_doc:
+        logger.info('✅ MongoDB connection and CRUD operations verified successfully')
+    else:
+        logger.warning('⚠️ MongoDB connected but test document retrieval failed')
+        
 except Exception as e:
     logger.error(f'❌ MongoDB connection failed: {str(e)}')
+    logger.error('Predictions and feedback will not be saved to the database!')
+    # Keep the collections as None to indicate they're not available
 
 # Load the TRAINED MODEL
 model_path = 'models/disease_predictor.pkl'
@@ -366,10 +398,16 @@ def predict():
             final_lang = 'en'
 
         # STEP 6: LOG AND RETURN
+        logger.info(f"Saving prediction to MongoDB for user_id: {user_id}")
         prediction_log_id = log_prediction(
             user_id, symptoms, final_disease_name, confidence, 
             final_lang, prediction_english, final_precautions
         )
+        
+        if prediction_log_id:
+            logger.info(f"✅ Prediction saved with ID: {prediction_log_id}")
+        else:
+            logger.warning("⚠️ Prediction was not saved to database")
         
         predicted_precautions = translate_precautions(final_precautions, "so")
 
@@ -401,6 +439,7 @@ def predict():
 
 def log_prediction(user_id, original_symptoms, displayed_prediction, probability, displayed_lang, actual_prediction_en, precautions):
     try:
+        # Create prediction document
         prediction_data = {
             'user_id': user_id,
             'symptoms_original': original_symptoms,
@@ -410,12 +449,31 @@ def log_prediction(user_id, original_symptoms, displayed_prediction, probability
             'probability': float(probability),
             'precautions': precautions,
             'timestamp': datetime.utcnow(),
-            'translation_method': 'google_translate_fixed'
+            'translation_method': 'google_translate_fixed',
+            'saved_at': datetime.utcnow().isoformat()
         }
-        result = predictions_collection.insert_one(prediction_data)
-        return str(result.inserted_id)
+        
+        # Insert into MongoDB with retry logic
+        max_retries = 3
+        retry_count = 0
+        last_error = None
+        
+        while retry_count < max_retries:
+            try:
+                result = predictions_collection.insert_one(prediction_data)
+                logger.info(f"✅ Prediction saved successfully with ID: {result.inserted_id}")
+                return str(result.inserted_id)
+            except Exception as e:
+                retry_count += 1
+                last_error = e
+                logger.warning(f"MongoDB insertion attempt {retry_count} failed: {str(e)}")
+                time.sleep(0.5)  # Wait before retrying
+        
+        # If we get here, all retries failed
+        logger.error(f"❌ Failed to save prediction after {max_retries} attempts: {str(last_error)}")
+        return None
     except Exception as e:
-        logger.error(f"Error logging prediction: {str(e)}")
+        logger.error(f"❌ Error logging prediction: {str(e)}")
         return None
 
 @app.route('/test-translation-debug', methods=['POST'])
@@ -490,18 +548,49 @@ def get_history():
         return jsonify({'error': 'User ID is required'}), 400
 
     try:
+        # Check if MongoDB connection is available
+        if 'predictions_collection' not in globals() or predictions_collection is None:
+            logger.error("MongoDB connection not available for history retrieval")
+            return jsonify({
+                'error': 'Database connection not available',
+                'status': 'error',
+                'message': 'Unable to connect to the database. Please try again later.'
+            }), 500
+            
+        # Get user predictions with sorting by timestamp
         user_predictions = list(predictions_collection.find({'user_id': user_id}).sort('timestamp', -1))
         
+        # Process each prediction for JSON serialization and add additional fields
         for pred in user_predictions:
             if '_id' in pred:
                 pred['_id'] = str(pred['_id'])
             if 'timestamp' in pred and isinstance(pred['timestamp'], datetime):
                 pred['timestamp'] = pred['timestamp'].isoformat()
+                # Add formatted date for display
+                pred['formatted_date'] = pred['timestamp'].split('T')[0]
+                
+            # Ensure probability is properly formatted
+            if 'probability' in pred:
+                pred['probability'] = float(pred['probability'])
+                pred['confidence_percentage'] = f"{pred['probability'] * 100:.2f}%"
+                
+            # Ensure precautions is always a list
+            if 'precautions' not in pred or not isinstance(pred['precautions'], list):
+                pred['precautions'] = []
 
-        return jsonify(user_predictions), 200
+        logger.info(f"Successfully retrieved {len(user_predictions)} prediction records for user {user_id}")
+        return jsonify({
+            'status': 'success',
+            'count': len(user_predictions),
+            'predictions': user_predictions
+        }), 200
     except Exception as e:
         logger.error(f"Error fetching history: {str(e)}")
-        return jsonify({'error': 'Could not retrieve prediction history'}), 500
+        return jsonify({
+            'error': 'Could not retrieve prediction history',
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 @app.route('/feedback', methods=['POST'])
 def handle_feedback():
@@ -542,10 +631,73 @@ def health_check():
         'vectorizer_loaded': vectorizer is not None
     }), 200
 
+# Chat message endpoints
+@app.route('/chat/message', methods=['POST'])
+def save_chat_message():
+    """Save a chat message to the database"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data.get('message') or not data.get('sender'):
+            return jsonify({'error': 'Message and sender are required'}), 400
+            
+        # Create message document
+        message_data = {
+            'user_id': data.get('user_id', 'anonymous'),
+            'message': data.get('message'),
+            'sender': data.get('sender'),  # 'user' or 'ai'
+            'prediction_id': data.get('prediction_id'),  # Only for AI messages
+            'timestamp': datetime.utcnow(),
+        }
+        
+        # Insert into database
+        try:
+            result = chat_messages_collection.insert_one(message_data)
+            logger.info(f'✅ Chat message saved with ID: {result.inserted_id}')
+            
+            return jsonify({
+                'success': True,
+                'message_id': str(result.inserted_id)
+            }), 201
+        except Exception as e:
+            logger.error(f'❌ Error inserting chat message: {str(e)}')
+            return jsonify({'error': 'Database error'}), 500
+        
+    except Exception as e:
+        logger.error(f'❌ Error saving chat message: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/chat/history', methods=['GET'])
+def get_chat_history():
+    """Get chat history for a user"""
+    try:
+        user_id = request.args.get('user_id', 'anonymous')
+        limit = int(request.args.get('limit', 100))
+        
+        # Get messages for this user
+        messages = list(chat_messages_collection.find(
+            {'user_id': user_id}
+        ).sort('timestamp', -1).limit(limit))
+        
+        # Convert ObjectId to string for JSON serialization
+        for msg in messages:
+            if '_id' in msg:
+                msg['_id'] = str(msg['_id'])
+            if 'timestamp' in msg and isinstance(msg['timestamp'], datetime):
+                msg['timestamp'] = msg['timestamp'].isoformat()
+                
+        return jsonify(messages), 200
+        
+    except Exception as e:
+        logger.error(f'❌ Error retrieving chat history: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     logger.info(f"🚀 Starting FIXED Translation Medical API on port {port}")
     logger.info(f"🌐 Translation: FIXED Google Translate with proper Somali support")
     logger.info(f"🤖 Model: Disease prediction")
     logger.info(f"💊 Precautions: Translated to Somali")
+    logger.info(f"💬 Chat messages: Stored in MongoDB")
     app.run(host='0.0.0.0', port=port, debug=True)
