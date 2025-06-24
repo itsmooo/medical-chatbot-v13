@@ -1,5 +1,4 @@
 # precaution_data.py
-
 disease_precautions = {
     "Sonkorowga": [
         "Cun cunto caafimaad leh oo ay sonkortu ku yar tahay, oo ay ku jiraan khudaarta, khudaarta khafiifka ah ee macaan, iyo miraha oo dhan.",

@@ -18,6 +18,14 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
+# Import Somali precautions
+try:
+    from precautions import disease_precautions
+    logger.info("✅ Successfully imported Somali precautions")
+except ImportError as e:
+    logger.error(f"❌ Failed to import precautions: {e}")
+    disease_precautions = {}
+
 # Initialize Google Translator with better error handling
 try:
     from googletrans import Translator
@@ -259,28 +267,70 @@ def translate_precautions_fixed(precautions_list, target_lang):
     logger.info(f"✅ PRECAUTIONS TRANSLATION COMPLETE: {len(translated_precautions)} items")
     return translated_precautions
 
+def get_somali_precautions_for_disease(disease_name):
+    """
+    Get Somali disease-specific precautions
+    """
+    try:
+        # Map English disease names to Somali keys
+        disease_mapping = {
+            'diabetes': 'Sonkorowga',
+            'malaria': 'Malaria', 
+            'pneumonia': 'Burunkiito',
+            'bronchitis': 'Burunkiito',
+            'migraine': 'Migraine',
+            'urinary tract infection': 'Infekshanka kaadi mareenka',
+            'uti': 'Infekshanka kaadi mareenka',
+            'typhoid': 'Typhoid',
+            'fungal infection': 'Infekshanka fungal',
+            'common cold': 'Qawowga caadiga ah',
+            'cold': 'Qawowga caadiga ah',
+            'flu': 'Qawowga caadiga ah'
+        }
+        
+        disease_lower = disease_name.lower().strip()
+        logger.info(f"🔍 Looking for Somali precautions for: {disease_name}")
+        
+        # Direct match
+        if disease_lower in disease_mapping:
+            somali_key = disease_mapping[disease_lower]
+            if somali_key in disease_precautions:
+                logger.info(f"✅ Found direct Somali precautions for: {disease_name} -> {somali_key}")
+                return disease_precautions[somali_key]
+        
+        # Partial match
+        for eng_key, somali_key in disease_mapping.items():
+            if eng_key in disease_lower or disease_lower in eng_key:
+                if somali_key in disease_precautions:
+                    logger.info(f"✅ Found partial Somali precautions: {eng_key} -> {somali_key}")
+                    return disease_precautions[somali_key]
+        
+        # Default Somali precautions
+        logger.info(f"⚠️ No specific Somali precautions found for: {disease_name}, using default")
+        return [
+            "La tashii dhakhtar si aad u hesho daaweyn sax ah.",
+            "Hel nasasho badan oo cab biyo badan.",
+            "Raac talada dhakhtarkaaga oo qaado daawooyinka laguu qoro.",
+            "Ka fogow waxyaabaha sii daraya xaaladaada.",
+            "Haddii calaamadaha sii daraan, dhaqso ugu tag isbitaalka."
+        ]
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting Somali precautions for {disease_name}: {str(e)}")
+        return [
+            "La tashii dhakhtar si aad u hesho daaweyn sax ah.",
+            "Hel nasasho badan oo cab biyo badan.",
+            "Raac talada dhakhtarkaaga oo qaado daawooyinka laguu qoro."
+        ]
+
 def get_precautions_for_disease(disease_name):
     """
-    Get precautions for a specific disease
+    Get precautions for a specific disease - now returns Somali precautions directly
     """
-    logger.info(f"🔍 Getting precautions for: {disease_name}")
+    logger.info(f"🔍 Getting Somali precautions for: {disease_name}")
     
-    # Try exact match first
-    if disease_name in DISEASE_PRECAUTIONS:
-        precautions = DISEASE_PRECAUTIONS[disease_name]
-        logger.info(f"✅ Found exact match: {len(precautions)} precautions")
-        return precautions
-    
-    # Try partial match
-    for disease_key in DISEASE_PRECAUTIONS.keys():
-        if disease_key.lower() in disease_name.lower() or disease_name.lower() in disease_key.lower():
-            precautions = DISEASE_PRECAUTIONS[disease_key]
-            logger.info(f"✅ Found partial match ({disease_key}): {len(precautions)} precautions")
-            return precautions
-    
-    # Use generic precautions
-    logger.info(f"⚠️ Using generic precautions: {len(GENERIC_PRECAUTIONS)} items")
-    return GENERIC_PRECAUTIONS
+    # Always return Somali precautions
+    return get_somali_precautions_for_disease(disease_name)
 
 def create_model_vector(english_symptoms):
     """
@@ -324,8 +374,8 @@ def predict():
         # Validation
         if not symptoms or len(symptoms) < 5:
             return jsonify({
-                'error': 'Please provide more detailed symptoms (at least 5 characters).',
-                'is_unclear': True
+                'message': 'Please provide more detailed symptoms (at least 5 characters).',
+                'type': 'error'
             }), 400
 
         # STEP 1: DETECT LANGUAGE
@@ -360,41 +410,36 @@ def predict():
         except Exception as e:
             logger.error(f"❌ Model prediction error: {str(e)}")
             return jsonify({
-                'error': 'Error making prediction with the trained model.',
-                'model_error': True
+                'message': 'Error making prediction with the trained model.',
+                'type': 'error'
             }), 500
 
         # Check confidence threshold
         if confidence < 0.20:
             return jsonify({
-                'error': f'System confidence too low ({(confidence * 100):.0f}%). Please provide more details.',
-                'is_unclear': True,
-                'confidence_too_low': True,
+                'message': f'System confidence too low ({(confidence * 100):.0f}%). Please provide more details.',
+                'type': 'low_confidence',
                 'confidence': float(confidence)
             }), 200
 
-        # STEP 4: GET PRECAUTIONS
-        precautions_english = get_precautions_for_disease(prediction_english)
-        logger.info(f"✅ GOT PRECAUTIONS: {len(precautions_english)} items")
+        # STEP 4: GET SOMALI PRECAUTIONS
+        somali_precautions = get_somali_precautions_for_disease(prediction_english)
+        logger.info(f"✅ GOT SOMALI PRECAUTIONS: {len(somali_precautions)} items")
 
-        # STEP 5: TRANSLATE BACK TO ORIGINAL LANGUAGE
+        # STEP 5: PREPARE RESPONSE DATA
         if detected_lang == 'som':
-            logger.info(f"🔄 TRANSLATING BACK TO SOMALI")
+            logger.info(f"🔄 TRANSLATING DISEASE NAME TO SOMALI")
             
             # Translate disease name
             disease_name_somali = translate_text_fixed(prediction_english, 'en', 'som')
             logger.info(f"✅ DISEASE NAME TRANSLATED: '{disease_name_somali}'")
             
-            # Translate precautions
-            precautions_somali = translate_precautions_fixed(precautions_english, 'som')
-            logger.info(f"✅ PRECAUTIONS TRANSLATED: {len(precautions_somali)} items")
-            
             final_disease_name = disease_name_somali
-            final_precautions = precautions_somali
+            final_precautions = somali_precautions  # Already in Somali
             final_lang = 'som'
         else:
             final_disease_name = prediction_english
-            final_precautions = precautions_english
+            final_precautions = somali_precautions  # Still use Somali precautions
             final_lang = 'en'
 
         # STEP 6: LOG AND RETURN
@@ -408,17 +453,16 @@ def predict():
             logger.info(f"✅ Prediction saved with ID: {prediction_log_id}")
         else:
             logger.warning("⚠️ Prediction was not saved to database")
-        
-        predicted_precautions = translate_precautions(final_precautions, "so")
 
+        # Format response to match chat interface expectations
         response_data = {
+            'message': 'Prediction completed successfully.',
+            'type': 'diagnosis',
             'disease': final_disease_name,
             'confidence': float(confidence),
-            'precautions': final_precautions, 
+            'precautions': final_precautions,  # Already in Somali
             'lang': final_lang,
-            'prediction_id': prediction_log_id, 
-            'translated_text': predicted_precautions if detected_lang =="en" else final_precautions,
-            'translation_method': 'google_translate_fixed',
+            'prediction_id': prediction_log_id,
             'debug_info': {
                 'detected_language': detected_lang,
                 'original_disease': prediction_english,
@@ -435,7 +479,10 @@ def predict():
 
     except Exception as e:
         logger.error(f"💥 Critical error: {str(e)}", exc_info=True)
-        return jsonify({'error': 'An internal server error occurred.'}), 500
+        return jsonify({
+            'message': 'An internal server error occurred.',
+            'type': 'error'
+        }), 500
 
 def log_prediction(user_id, original_symptoms, displayed_prediction, probability, displayed_lang, actual_prediction_en, precautions):
     try:
