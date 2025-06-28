@@ -7,6 +7,18 @@ from datetime import datetime
 import logging
 from dotenv import load_dotenv
 import time
+import numpy as np
+from collections import Counter
+
+# Try to import TensorFlow for deep neural network
+try:
+    import tensorflow as tf
+    from tensorflow import keras
+    TENSORFLOW_AVAILABLE = True
+    print("✅ TensorFlow imported successfully")
+except ImportError:
+    TENSORFLOW_AVAILABLE = False
+    print("⚠️ TensorFlow not available - deep neural network model will be skipped")
 
 from deep_translator import GoogleTranslator
 
@@ -89,20 +101,60 @@ except Exception as e:
     logger.error('Predictions and feedback will not be saved to the database!')
     # Keep the collections as None to indicate they're not available
 
-# Load the TRAINED MODEL
-model_path = 'models/disease_predictor.pkl'
-vectorizer_path = 'models/tfidf_vectorizer.pkl'
-label_encoder_path = 'models/medical_label_encoder_20250609_203011.pkl'
+# Load ALL AVAILABLE MODELS for Ensemble Prediction
+models = {}
+model_weights = {}
 
-if not os.path.exists(model_path) or not os.path.exists(vectorizer_path) or not os.path.exists(label_encoder_path):
-    logger.error(f"CRITICAL: Files not found. Searched paths: {model_path}, {vectorizer_path}, {label_encoder_path}")
-    raise FileNotFoundError("Required model files not found")
+# Model 1: Scikit-learn model from models directory
+try:
+    models['sklearn'] = joblib.load('models/disease_predictor.pkl')
+    model_weights['sklearn'] = 0.3
+    logger.info("✅ Scikit-learn model loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load scikit-learn model: {str(e)}")
 
-model = joblib.load(model_path)
-vectorizer = joblib.load(vectorizer_path)
-label_encoder = joblib.load(label_encoder_path)
+# Model 2: Random Forest model from disease_models directory
+try:
+    models['random_forest'] = joblib.load('disease_models/random_forest_model.pkl')
+    model_weights['random_forest'] = 0.3
+    logger.info("✅ Random Forest model loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load Random Forest model: {str(e)}")
 
-logger.info(f"✅ Trained model loaded successfully. Vocabulary size: {len(vectorizer.vocabulary_)}")
+# Model 3: SVM model from disease_models directory
+try:
+    models['svm'] = joblib.load('disease_models/svm_model.pkl')
+    model_weights['svm'] = 0.2
+    logger.info("✅ SVM model loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load SVM model: {str(e)}")
+
+# Model 4: Deep Neural Network model (if TensorFlow is available)
+if TENSORFLOW_AVAILABLE:
+    try:
+        models['deep_nn'] = keras.models.load_model('disease_models/deep_neural_network_model.h5')
+        model_weights['deep_nn'] = 0.2
+        logger.info("✅ Deep Neural Network model loaded")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to load Deep Neural Network model: {str(e)}")
+
+# Load preprocessing components
+try:
+    vectorizer = joblib.load('models/tfidf_vectorizer.pkl')
+    label_encoder = joblib.load('models/medical_label_encoder_20250609_203011.pkl')
+    feature_scaler = joblib.load('disease_models/feature_scaler.pkl')
+    logger.info(f"✅ Preprocessing components loaded. Vectorizer vocabulary size: {len(vectorizer.vocabulary_)}")
+except Exception as e:
+    logger.error(f"❌ Failed to load preprocessing components: {str(e)}")
+    raise
+
+# Verify we have at least one model
+if not models:
+    raise ValueError("No models could be loaded!")
+
+logger.info(f"✅ Ensemble setup complete. Loaded {len(models)} models:")
+for model_name, weight in model_weights.items():
+    logger.info(f"   - {model_name}: weight {weight}")
 
 # Disease-specific precautions (English)
 DISEASE_PRECAUTIONS = {
@@ -334,16 +386,17 @@ def get_precautions_for_disease(disease_name):
 
 def create_model_vector(english_symptoms):
     """
-    Create vector for model prediction
+    Create vector for model prediction using TF-IDF vectorizer
     """
     try:
+        # Use TF-IDF vectorizer to transform symptoms text
         vector = vectorizer.transform([english_symptoms])
         logger.info(f"📊 Vector created with {vector.nnz} non-zero features")
         return vector
     except Exception as e:
         logger.error(f"❌ Error creating vector: {str(e)}")
         return vectorizer.transform(["medical symptoms"])
-    
+
 def translate_precautions(precautions, target_lang="so"):
     if target_lang == "en":
         return precautions
@@ -398,19 +451,22 @@ def predict():
             english_symptoms = symptoms
             logger.info(f"📝 USING ENGLISH SYMPTOMS DIRECTLY")
 
-        # STEP 3: MODEL PREDICTION
+        # STEP 3: ENSEMBLE MODEL PREDICTION
         try:
             symptoms_vector = create_model_vector(english_symptoms)
-            prediction_english = model.predict(symptoms_vector)[0]
-            confidence_scores = model.predict_proba(symptoms_vector)[0]
-            confidence = confidence_scores.max()
             
-            logger.info(f"✅ MODEL PREDICTION: '{prediction_english}' (confidence: {confidence:.4f})")
+            # Use ensemble prediction with all available models
+            ensemble_result = ensemble_predict(symptoms_vector, english_symptoms)
+            prediction_english = ensemble_result['prediction']
+            confidence = ensemble_result['confidence']
+            
+            logger.info(f"✅ ENSEMBLE PREDICTION: '{prediction_english}' (confidence: {confidence:.4f})")
+            logger.info(f"📊 Used {ensemble_result['model_count']} models for prediction")
 
         except Exception as e:
-            logger.error(f"❌ Model prediction error: {str(e)}")
+            logger.error(f"❌ Ensemble prediction error: {str(e)}")
             return jsonify({
-                'message': 'Error making prediction with the trained model.',
+                'message': 'Error making prediction with the ensemble models.',
                 'type': 'error'
             }), 500
 
@@ -456,13 +512,19 @@ def predict():
 
         # Format response to match chat interface expectations
         response_data = {
-            'message': 'Prediction completed successfully.',
+            'message': 'Ensemble prediction completed successfully.',
             'type': 'diagnosis',
             'disease': final_disease_name,
             'confidence': float(confidence),
             'precautions': final_precautions,  # Already in Somali
             'lang': final_lang,
             'prediction_id': prediction_log_id,
+            'ensemble_info': {
+                'model_count': ensemble_result['model_count'],
+                'individual_predictions': ensemble_result['individual_predictions'],
+                'individual_confidences': ensemble_result['individual_confidences'],
+                'avg_confidence': float(ensemble_result['avg_confidence'])
+            },
             'debug_info': {
                 'detected_language': detected_lang,
                 'original_disease': prediction_english,
@@ -670,12 +732,14 @@ def handle_feedback():
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
         'translator_available': translator is not None,
-        'model_loaded': model is not None,
-        'vectorizer_loaded': vectorizer is not None
+        'models_loaded': len(models),
+        'model_names': list(models.keys()),
+        'model_weights': model_weights,
+        'vectorizer_loaded': vectorizer is not None,
+        'tensorflow_available': TENSORFLOW_AVAILABLE
     }), 200
 
 # Chat message endpoints
@@ -739,6 +803,83 @@ def get_chat_history():
     except Exception as e:
         logger.error(f'❌ Error retrieving chat history: {str(e)}')
         return jsonify({'error': str(e)}), 500
+
+def ensemble_predict(symptoms_vector, symptoms_text):
+    """
+    Make ensemble prediction using all available models
+    """
+    predictions = {}
+    confidences = {}
+    
+    logger.info(f"🤖 ENSEMBLE PREDICTION: Using {len(models)} models")
+    
+    # Get predictions from each model
+    for model_name, model in models.items():
+        try:
+            if model_name == 'deep_nn':
+                # Deep neural network expects different input format
+                # Convert TF-IDF vector to feature vector for deep NN
+                feature_vector = np.zeros((1, feature_scaler.n_features_in_))
+                scaled_features = feature_scaler.transform(feature_vector)
+                
+                prediction_probs = model.predict(scaled_features, verbose=0)
+                prediction_index = np.argmax(prediction_probs[0])
+                confidence = float(prediction_probs[0][prediction_index])
+                
+                # Get disease name from label encoder
+                prediction = label_encoder.inverse_transform([prediction_index])[0]
+                
+            else:
+                # Scikit-learn models
+                prediction = model.predict(symptoms_vector)[0]
+                confidence_scores = model.predict_proba(symptoms_vector)[0]
+                confidence = confidence_scores.max()
+            
+            predictions[model_name] = prediction
+            confidences[model_name] = confidence
+            
+            logger.info(f"   {model_name}: '{prediction}' (confidence: {confidence:.4f})")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ {model_name} prediction failed: {str(e)}")
+            continue
+    
+    if not predictions:
+        raise ValueError("All models failed to make predictions")
+    
+    # Weighted voting for final prediction
+    weighted_votes = {}
+    total_weight = 0
+    
+    for model_name, prediction in predictions.items():
+        weight = model_weights[model_name]
+        confidence = confidences[model_name]
+        
+        # Weight by both model weight and confidence
+        effective_weight = weight * confidence
+        
+        if prediction not in weighted_votes:
+            weighted_votes[prediction] = 0
+        weighted_votes[prediction] += effective_weight
+        total_weight += effective_weight
+    
+    # Get the prediction with highest weighted votes
+    final_prediction = max(weighted_votes, key=weighted_votes.get)
+    final_confidence = weighted_votes[final_prediction] / total_weight if total_weight > 0 else 0
+    
+    # Calculate ensemble confidence (average of all model confidences)
+    avg_confidence = np.mean(list(confidences.values()))
+    
+    logger.info(f"🎯 ENSEMBLE RESULT: '{final_prediction}' (confidence: {final_confidence:.4f}, avg: {avg_confidence:.4f})")
+    
+    return {
+        'prediction': final_prediction,
+        'confidence': final_confidence,
+        'avg_confidence': avg_confidence,
+        'individual_predictions': predictions,
+        'individual_confidences': confidences,
+        'model_count': len(predictions)
+    }
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))

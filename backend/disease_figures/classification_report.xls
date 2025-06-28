@@ -1,0 +1,12 @@
+,precision,recall,f1-score,support
+Common Cold,1.0,1.0,1.0,125.0
+Diabetes,1.0,1.0,1.0,125.0
+Fungal Infections,1.0,1.0,1.0,125.0
+Malaria,1.0,1.0,1.0,125.0
+Migraine,1.0,1.0,1.0,125.0
+Pneumonia,1.0,1.0,1.0,125.0
+Typhoid,1.0,1.0,1.0,125.0
+Urinary Tract Infection,1.0,1.0,1.0,125.0
+accuracy,1.0,1.0,1.0,1.0
+macro avg,1.0,1.0,1.0,1000.0
+weighted avg,1.0,1.0,1.0,1000.0
