@@ -132,6 +132,7 @@ const ChatInterface = () => {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    setInputValue(''); // Clear the input field
     setIsTyping(true);
 
     // Save user message to database

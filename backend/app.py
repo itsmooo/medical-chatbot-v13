@@ -57,7 +57,7 @@ except Exception as e:
     translator = None
 
 app = Flask(__name__)
-CORS(app, origins=['http://localhost:3000', 'http://localhost:5173', 'http://localhost:8080'], 
+CORS(app, origins=['http://localhost:3000', 'http://localhost:8080'], 
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
      allow_headers=['Content-Type', 'Authorization'])
 
