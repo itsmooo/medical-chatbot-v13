@@ -38,22 +38,33 @@ except ImportError as e:
     logger.error(f"❌ Failed to import precautions: {e}")
     disease_precautions = {}
 
-# Initialize Google Translator with better error handling
+# Initialize Deep Translator with better error handling
 try:
-    from googletrans import Translator
-    translator = Translator()
-    logger.info('✅ Google Translator initialized successfully')
+    # Test basic translation
+    test_translator = GoogleTranslator(source='en', target='en')
+    # Check if the method is async
+    import inspect
+    if inspect.iscoroutinefunction(test_translator.translate):
+        import asyncio
+        test_result = asyncio.run(test_translator.translate('hello world'))
+    else:
+        test_result = test_translator.translate('hello world')
+    logger.info(f'✅ Deep Translator test successful: EN->EN = "{test_result}"')
     
-    # Test the translator with Somali
-    test_result = translator.translate('hello world', src='en', dest='so')
-    logger.info(f'✅ Google Translator test successful: EN->SO = "{test_result.text}"')
+    # Test Somali translation
+    somali_translator = GoogleTranslator(source='en', target='so')
+    if inspect.iscoroutinefunction(somali_translator.translate):
+        test_somali = asyncio.run(somali_translator.translate('hello world'))
+    else:
+        test_somali = somali_translator.translate('hello world')
+    logger.info(f'✅ Deep Translator Somali test: EN->SO = "{test_somali}"')
     
-    # Test reverse translation
-    test_reverse = translator.translate('Waan ku salaamayaa', src='so', dest='en')
-    logger.info(f'✅ Google Translator reverse test: SO->EN = "{test_reverse.text}"')
+    # Set up global translator for auto-detection
+    translator = GoogleTranslator(source='auto', target='en')
+    logger.info('✅ Deep Translator initialized successfully')
     
 except Exception as e:
-    logger.error(f'❌ Failed to initialize Google Translator: {str(e)}')
+    logger.error(f'❌ Failed to initialize Deep Translator: {str(e)}')
     translator = None
 
 app = Flask(__name__)
@@ -210,33 +221,23 @@ GENERIC_PRECAUTIONS = [
     "Stay hydrated and avoid self-medication"
 ]
 
-def detect_language_fixed(text):
+def detect_language_fixed(text, lang_param='auto'):
     """
-    FIXED language detection with better logic
+    MANUAL language selection instead of detection
     """
     try:
-        logger.info(f"🔍 DETECTING LANGUAGE for: '{text[:50]}...'")
+        logger.info(f"🔍 LANGUAGE SELECTION for: '{text[:50]}...'")
+        logger.info(f"🌐 Manual language param: '{lang_param}'")
         
-        if translator is None:
-            logger.warning("⚠️ Google Translator not available, defaulting to English")
-            return 'en'
-        
-        # Use Google Translate's detect method
-        detection = translator.detect(text)
-        detected_lang = detection.lang
-        confidence = detection.confidence
-        
-        logger.info(f"🔍 Google detected: '{detected_lang}' with confidence: {confidence}")
-        
-        # FIXED: Better language mapping
-        if detected_lang == 'so':  # Somali
-            logger.info("✅ CONFIRMED: Somali language detected")
+        # Manual language selection based on parameter
+        if lang_param in ['som', 'somali', 'so']:
+            logger.info("✅ MANUAL SELECTION: Somali language")
             return 'som'
-        elif detected_lang == 'en':  # English
-            logger.info("✅ CONFIRMED: English language detected")
+        elif lang_param in ['en', 'english', 'eng']:
+            logger.info("✅ MANUAL SELECTION: English language")
             return 'en'
         else:
-            # For uncertain cases, check for Somali keywords
+            # Fallback: check for Somali keywords if auto mode
             somali_keywords = ['waxaan', 'qabaa', 'qandho', 'madax', 'xanuun', 'daal', 'haraad', 'kaadi']
             text_lower = text.lower()
             somali_found = sum(1 for keyword in somali_keywords if keyword in text_lower)
@@ -249,18 +250,18 @@ def detect_language_fixed(text):
                 return 'en'
             
     except Exception as e:
-        logger.error(f"❌ Language detection failed: {str(e)}")
+        logger.error(f"❌ Language selection failed: {str(e)}")
         return 'en'
 
 def translate_text_fixed(text, source_lang, target_lang):
     """
-    FIXED translation with proper language codes and debugging
+    FIXED translation with proper language codes and debugging using deep_translator
     """
     try:
         logger.info(f"🔄 TRANSLATING: '{text[:50]}...' FROM {source_lang} TO {target_lang}")
         
         if translator is None:
-            logger.warning("⚠️ Google Translator not available")
+            logger.warning("⚠️ Deep Translator not available")
             return text
         
         # Skip if same language
@@ -268,15 +269,35 @@ def translate_text_fixed(text, source_lang, target_lang):
             logger.info("⚠️ Same language, skipping translation")
             return text
         
-        # FIXED: Correct language codes for Google Translate
-        google_source = 'so' if source_lang == 'som' else source_lang
-        google_target = 'so' if target_lang == 'som' else target_lang
+        # FIXED: Correct language codes for deep_translator
+        deep_source = 'so' if source_lang == 'som' else source_lang
+        deep_target = 'so' if target_lang == 'som' else target_lang
         
-        logger.info(f"🔄 Using Google codes: {google_source} -> {google_target}")
+        logger.info(f"🔄 Using Deep Translator codes: {deep_source} -> {deep_target}")
         
-        # Translate
-        translation = translator.translate(text, src=google_source, dest=google_target)
-        translated_text = translation.text
+        # Create translator instance for this specific translation
+        translator_instance = GoogleTranslator(source=deep_source, target=deep_target)
+        
+        # Translate - handle potential async issues
+        try:
+            # Try synchronous translation first
+            translated_text = translator_instance.translate(text)
+        except Exception as translate_error:
+            logger.error(f"❌ Translation error: {str(translate_error)}")
+            # Try with different approach - might be async
+            try:
+                # Create a new translator instance and try async if needed
+                fallback_translator = GoogleTranslator(source=deep_source, target=deep_target)
+                # Check if the method is async
+                import inspect
+                if inspect.iscoroutinefunction(fallback_translator.translate):
+                    import asyncio
+                    translated_text = asyncio.run(fallback_translator.translate(text))
+                else:
+                    translated_text = fallback_translator.translate(text)
+            except Exception as fallback_error:
+                logger.error(f"❌ Fallback translation also failed: {str(fallback_error)}")
+                return text
         
         if translated_text and translated_text.strip():
             logger.info(f"✅ TRANSLATION SUCCESS: '{translated_text[:50]}...'")
@@ -291,7 +312,7 @@ def translate_text_fixed(text, source_lang, target_lang):
 
 def translate_precautions_fixed(precautions_list, target_lang):
     """
-    FIXED precautions translation with better error handling
+    FIXED precautions translation with better error handling using deep_translator
     """
     if target_lang == 'en' or translator is None:
         logger.info(f"⚠️ No translation needed (target: {target_lang})")
@@ -404,9 +425,17 @@ def translate_precautions(precautions, target_lang="so"):
     translated = []
     for p in precautions:
         try:
-            translated.append(GoogleTranslator(source="auto", target=target_lang).translate(p))
+            translator_instance = GoogleTranslator(source="auto", target=target_lang)
+            # Check if the method is async
+            import inspect
+            if inspect.iscoroutinefunction(translator_instance.translate):
+                import asyncio
+                translated_text = asyncio.run(translator_instance.translate(p))
+            else:
+                translated_text = translator_instance.translate(p)
+            translated.append(translated_text)
         except Exception as e:
-            print(f"Translation error: {e}")
+            logger.error(f"Translation error: {e}")
             translated.append(p)
     return translated
   
@@ -431,16 +460,9 @@ def predict():
                 'type': 'error'
             }), 400
 
-        # STEP 1: DETECT LANGUAGE
-        if lang_param in ['som', 'somali', 'so']:
-            detected_lang = 'som'
-            logger.info(f"🌐 FORCED LANGUAGE: Somali")
-        elif lang_param in ['en', 'english', 'eng']:
-            detected_lang = 'en'
-            logger.info(f"🌐 FORCED LANGUAGE: English")
-        else:
-            detected_lang = detect_language_fixed(symptoms)
-            logger.info(f"🌐 AUTO-DETECTED LANGUAGE: {detected_lang}")
+        # STEP 1: SELECT LANGUAGE
+        detected_lang = detect_language_fixed(symptoms, lang_param)
+        logger.info(f"🌐 SELECTED LANGUAGE: {detected_lang}")
 
         # STEP 2: TRANSLATE SYMPTOMS TO ENGLISH
         if detected_lang == 'som':
@@ -601,13 +623,13 @@ def test_translation_debug():
         }
         
         if translator is None:
-            result['error'] = 'Google Translator not available'
+            result['error'] = 'Deep Translator not available'
             return jsonify(result), 503
         
-        # Step 1: Language detection
-        detected_lang = detect_language_fixed(text)
+        # Step 1: Language selection
+        detected_lang = detect_language_fixed(text, 'auto')
         result['steps'].append({
-            'step': 'language_detection',
+            'step': 'language_selection',
             'detected': detected_lang,
             'success': True
         })
@@ -615,7 +637,8 @@ def test_translation_debug():
         # Step 2: Translate to English if Somali
         if detected_lang == 'som':
             english_translation = translate_text_fixed(text, 'som', 'en')
-            result['steps'].append({
+            result['steps'].append({cls
+                                    
                 'step': 'somali_to_english',
                 'result': english_translation,
                 'success': english_translation != text
@@ -734,7 +757,7 @@ def handle_feedback():
 def health_check():
     return jsonify({
         'status': 'healthy',
-        'translator_available': translator is not None,
+        'deep_translator_available': translator is not None,
         'models_loaded': len(models),
         'model_names': list(models.keys()),
         'model_weights': model_weights,
@@ -884,7 +907,7 @@ def ensemble_predict(symptoms_vector, symptoms_text):
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     logger.info(f"🚀 Starting FIXED Translation Medical API on port {port}")
-    logger.info(f"🌐 Translation: FIXED Google Translate with proper Somali support")
+    logger.info(f"🌐 Translation: FIXED Deep Translator with proper Somali support")
     logger.info(f"🤖 Model: Disease prediction")
     logger.info(f"💊 Precautions: Translated to Somali")
     logger.info(f"💬 Chat messages: Stored in MongoDB")
