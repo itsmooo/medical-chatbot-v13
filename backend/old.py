@@ -61,14 +61,6 @@ except ImportError as e:
     logger.error(f"❌ Failed to import precautions: {e}")
     disease_precautions = {}
 
-# Import disease rules for Somali symptom analysis
-try:
-    from disease_rules import DISEASE_RULES
-    logger.info("✅ Successfully imported disease rules")
-except ImportError as e:
-    logger.error(f"❌ Failed to import disease rules: {e}")
-    DISEASE_RULES = {}
-
 # Initialize Deep Translator with better error handling
 try:
     # Test basic translation
@@ -414,7 +406,9 @@ def get_somali_precautions_for_disease(disease_name):
         return [
             "La tashii dhakhtar si aad u hesho daaweyn sax ah.",
             "Hel nasasho badan oo cab biyo badan.",
-            "Raac talada dhakhtarkaaga oo qaado daawooyinka laguu qoro."
+            "Raac talada dhakhtarkaaga oo qaado daawooyinka laguu qoro.",
+            "Ka fogow waxyaabaha sii daraya xaaladaada.",
+            "Haddii calaamadaha sii daraan, dhaqso ugu tag isbitaalka."
         ]
         
     except Exception as e:
@@ -569,230 +563,6 @@ def validate_symptoms_with_openai(symptoms_text, language='en'):
             'reason': f'OpenAI validation failed: {str(e)}',
             'suggestions': []
         }
-
-def apply_somali_disease_rules(somali_symptoms, ensemble_predictions, ensemble_confidences):
-    """
-    Apply Somali disease rules to improve prediction accuracy for similar diseases
-    """
-    try:
-        logger.info(f"🔍 DEBUG: Applying Somali disease rules to: '{somali_symptoms[:50]}...'")
-        logger.info(f"🔍 DEBUG: Disease rules available: {bool(DISEASE_RULES)}")
-        logger.info(f"🔍 DEBUG: Number of disease rules: {len(DISEASE_RULES) if DISEASE_RULES else 0}")
-        
-        if not DISEASE_RULES:
-            logger.warning("⚠️ Disease rules not available, skipping Somali rule application")
-            return ensemble_predictions, ensemble_confidences
-        
-        # Convert symptoms to lowercase for matching
-        symptoms_lower = somali_symptoms.lower()
-        logger.info(f"🔍 DEBUG: Symptoms (lowercase): '{symptoms_lower}'")
-        
-        # Track rule-based adjustments
-        rule_adjustments = {}
-        applied_rules = []
-        disease_scores = {}
-        
-        logger.info(f"🔍 DEBUG: Starting disease rule analysis...")
-        
-        # Calculate scores for each disease based on Somali symptoms
-        for disease, rules in DISEASE_RULES.items():
-            logger.info(f"🔍 DEBUG: Analyzing disease: '{disease}'")
-            
-            boost_score = 0
-            penalize_score = 0
-            boost_matches = []
-            penalize_matches = []
-            
-            # Check boost keywords with exact matching
-            boost_keywords = rules.get('boost_keywords', [])
-            logger.info(f"🔍 DEBUG: Boost keywords for '{disease}': {boost_keywords}")
-            
-            for keyword in boost_keywords:
-                keyword_lower = keyword.lower()
-                if keyword_lower in symptoms_lower:
-                    boost_score += 1
-                    boost_matches.append(keyword)
-                    applied_rules.append(f"BOOST: '{keyword}' -> {disease}")
-                    logger.info(f"✅ DEBUG: BOOST MATCH: '{keyword}' found in symptoms for '{disease}'")
-                else:
-                    logger.info(f"❌ DEBUG: No boost match for '{keyword}' in '{disease}'")
-            
-            # Check penalize keywords with exact matching
-            penalize_keywords = rules.get('penalize_keywords', [])
-            logger.info(f"🔍 DEBUG: Penalize keywords for '{disease}': {penalize_keywords}")
-            
-            for keyword in penalize_keywords:
-                keyword_lower = keyword.lower()
-                if keyword_lower in symptoms_lower:
-                    penalize_score += 1
-                    penalize_matches.append(keyword)
-                    applied_rules.append(f"PENALIZE: '{keyword}' -> {disease}")
-                    logger.info(f"❌ DEBUG: PENALIZE MATCH: '{keyword}' found in symptoms for '{disease}'")
-                else:
-                    logger.info(f"✅ DEBUG: No penalize match for '{keyword}' in '{disease}'")
-            
-            # Calculate net score (boost - penalize)
-            net_score = boost_score - penalize_score
-            logger.info(f"📊 DEBUG: Disease '{disease}' final score: boost={boost_score}, penalize={penalize_score}, net={net_score}")
-            
-            # Store scores for all diseases, even if net_score is 0
-            disease_scores[disease] = {
-                'boost_score': boost_score,
-                'penalize_score': penalize_score,
-                'net_score': net_score,
-                'boost_matches': boost_matches,
-                'penalize_matches': penalize_matches
-            }
-            
-            if net_score != 0:
-                rule_adjustments[disease] = net_score
-                logger.info(f"📊 Disease '{disease}': boost={boost_score} ({boost_matches}), penalize={penalize_score} ({penalize_matches}), net={net_score}")
-            else:
-                logger.info(f"⚠️ DEBUG: No adjustments for '{disease}' (net_score=0)")
-        
-        logger.info(f"🔍 DEBUG: Rule adjustments calculated: {rule_adjustments}")
-        logger.info(f"🔍 DEBUG: Applied rules: {applied_rules}")
-        
-        # Apply adjustments to ensemble predictions
-        adjusted_predictions = ensemble_predictions.copy()
-        adjusted_confidences = ensemble_confidences.copy()
-        
-        logger.info(f"🔍 DEBUG: Original ensemble confidences: {ensemble_confidences}")
-        
-        # NEW: Force diseases with strong keyword matches into the prediction
-        forced_diseases = {}
-        for disease, score_info in disease_scores.items():
-            net_score = score_info['net_score']
-            
-            # If a disease has strong positive matches and isn't in ensemble, force it in
-            if net_score > 0 and disease not in adjusted_confidences:
-                # Force the disease into predictions with a base confidence
-                base_confidence = 0.3 + (0.1 * net_score)  # Base 0.3 + 0.1 per positive match
-                forced_diseases[disease] = base_confidence
-                logger.info(f"🎯 FORCED '{disease}' into predictions: {base_confidence:.3f} (net_score={net_score})")
-            
-            # If a disease has strong negative matches and is in ensemble, heavily penalize it
-            elif net_score < 0 and disease in adjusted_confidences:
-                original_confidence = adjusted_confidences[disease]
-                penalize_factor = 0.3 * abs(net_score)  # 30% per negative match
-                new_confidence = max(0.0, original_confidence - penalize_factor)
-                adjusted_confidences[disease] = new_confidence
-                logger.info(f"🎯 HEAVILY PENALIZED '{disease}': {original_confidence:.3f} -> {new_confidence:.3f} (-{penalize_factor:.3f})")
-        
-        # Add forced diseases to adjusted confidences
-        adjusted_confidences.update(forced_diseases)
-        
-        # Calculate adjustment factors based on disease scores for existing diseases
-        for disease, score_info in disease_scores.items():
-            if disease in adjusted_confidences and disease not in forced_diseases:
-                original_confidence = adjusted_confidences[disease]
-                net_score = score_info['net_score']
-                
-                logger.info(f"🔍 DEBUG: Adjusting '{disease}': original_confidence={original_confidence:.3f}, net_score={net_score}")
-                
-                # More sophisticated adjustment based on number of matches
-                if net_score > 0:
-                    # Boost confidence based on number of positive matches
-                    boost_factor = 0.2 * net_score  # 20% per positive match (increased from 15%)
-                    new_confidence = min(1.0, original_confidence + boost_factor)
-                    logger.info(f"🎯 BOOSTED '{disease}': {original_confidence:.3f} -> {new_confidence:.3f} (+{boost_factor:.3f})")
-                else:
-                    # Penalize confidence based on number of negative matches
-                    penalize_factor = 0.2 * abs(net_score)  # 20% per negative match (increased from 15%)
-                    new_confidence = max(0.0, original_confidence - penalize_factor)
-                    logger.info(f"🎯 PENALIZED '{disease}': {original_confidence:.3f} -> {new_confidence:.3f} (-{penalize_factor:.3f})")
-                
-                adjusted_confidences[disease] = new_confidence
-            elif disease not in adjusted_confidences:
-                logger.warning(f"⚠️ DEBUG: Disease '{disease}' not found in ensemble predictions")
-        
-        logger.info(f"🔍 DEBUG: Adjusted confidences: {adjusted_confidences}")
-        
-        # Find the best prediction after adjustments
-        if adjusted_confidences:
-            best_disease = max(adjusted_confidences, key=adjusted_confidences.get)
-            best_confidence = adjusted_confidences[best_disease]
-            
-            # Check if the prediction changed due to Somali rules
-            original_best = max(ensemble_confidences, key=ensemble_confidences.get) if ensemble_confidences else None
-            original_confidence = ensemble_confidences.get(original_best, 0) if original_best else 0
-            
-            logger.info(f"🔍 DEBUG: Original best prediction: '{original_best}' ({original_confidence:.3f})")
-            logger.info(f"🔍 DEBUG: New best prediction: '{best_disease}' ({best_confidence:.3f})")
-            
-            if original_best and best_disease != original_best:
-                logger.info(f"🔄 Somali rules CHANGED prediction: '{original_best}' ({original_confidence:.3f}) -> '{best_disease}' ({best_confidence:.3f})")
-            elif original_best:
-                logger.info(f"✅ Somali rules CONFIRMED prediction: '{best_disease}' ({best_confidence:.3f})")
-            
-            logger.info(f"🏆 Final prediction after Somali rules: '{best_disease}' (confidence: {best_confidence:.3f})")
-            logger.info(f"📝 Applied rules: {applied_rules}")
-            
-            # Return the best prediction and all adjusted confidences
-            return {best_disease: best_confidence}, adjusted_confidences
-        else:
-            logger.warning("⚠️ No diseases found in ensemble predictions")
-            return ensemble_predictions, ensemble_confidences
-            
-    except Exception as e:
-        logger.error(f"❌ Error applying Somali disease rules: {str(e)}")
-        return ensemble_predictions, ensemble_confidences
-
-def pre_filter_diseases_by_somali_symptoms(somali_symptoms):
-    """
-    Pre-filter diseases based on Somali symptoms to improve prediction accuracy
-    """
-    try:
-        logger.info(f"🔍 Pre-filtering diseases based on Somali symptoms: '{somali_symptoms[:50]}...'")
-        
-        if not DISEASE_RULES:
-            logger.warning("⚠️ Disease rules not available, skipping pre-filtering")
-            return None
-        
-        # Convert symptoms to lowercase for matching
-        symptoms_lower = somali_symptoms.lower()
-        
-        # Calculate initial scores for each disease
-        disease_scores = {}
-        
-        for disease, rules in DISEASE_RULES.items():
-            boost_score = 0
-            penalize_score = 0
-            
-            # Check boost keywords
-            for keyword in rules.get('boost_keywords', []):
-                keyword_lower = keyword.lower()
-                if keyword_lower in symptoms_lower:
-                    boost_score += 1
-            
-            # Check penalize keywords
-            for keyword in rules.get('penalize_keywords', []):
-                keyword_lower = keyword.lower()
-                if keyword_lower in symptoms_lower:
-                    penalize_score += 1
-            
-            # Calculate net score
-            net_score = boost_score - penalize_score
-            
-            if net_score > 0:  # Only consider diseases with positive scores
-                disease_scores[disease] = net_score
-                logger.info(f"📊 Pre-filter: '{disease}' score = {net_score} (boost: {boost_score}, penalize: {penalize_score})")
-        
-        # Return top diseases based on scores
-        if disease_scores:
-            # Sort by score (highest first)
-            sorted_diseases = sorted(disease_scores.items(), key=lambda x: x[1], reverse=True)
-            top_diseases = [disease for disease, score in sorted_diseases if score > 0]
-            
-            logger.info(f"🎯 Pre-filtered diseases: {top_diseases}")
-            return top_diseases
-        else:
-            logger.info("⚠️ No diseases matched Somali symptoms in pre-filtering")
-            return None
-            
-    except Exception as e:
-        logger.error(f"❌ Error in pre-filtering diseases: {str(e)}")
-        return None
   
   
 
@@ -850,30 +620,13 @@ def predict():
         try:
             symptoms_vector = create_model_vector(english_symptoms)
             
-            # Use ensemble prediction with all available models and Somali disease rules
-            somali_symptoms_for_rules = symptoms if detected_lang == 'som' else None
-            
-            logger.info(f"🔍 DEBUG: === ENSEMBLE PREDICTION WITH DISEASE RULES ===")
-            logger.info(f"🔍 DEBUG: Detected language: {detected_lang}")
-            logger.info(f"🔍 DEBUG: Original symptoms: '{symptoms}'")
-            logger.info(f"🔍 DEBUG: English symptoms: '{english_symptoms}'")
-            logger.info(f"🔍 DEBUG: Somali symptoms for rules: '{somali_symptoms_for_rules}'")
-            logger.info(f"🔍 DEBUG: Disease rules available: {bool(DISEASE_RULES)}")
-            
-            ensemble_result = ensemble_predict(
-                symptoms_vector, 
-                english_symptoms, 
-                somali_symptoms=somali_symptoms_for_rules,
-                detected_lang=detected_lang
-            )
+            # Use ensemble prediction with all available models
+            ensemble_result = ensemble_predict(symptoms_vector, english_symptoms)
             prediction_english = ensemble_result['prediction']
             confidence = ensemble_result['confidence']
             
             logger.info(f"✅ ENSEMBLE PREDICTION: '{prediction_english}' (confidence: {confidence:.4f})")
             logger.info(f"📊 Used {ensemble_result['model_count']} models for prediction")
-            if detected_lang == 'som':
-                logger.info(f"🔍 Applied Somali disease rules for improved accuracy")
-                logger.info(f"🔍 DEBUG: Final prediction after disease rules: '{prediction_english}'")
 
         except Exception as e:
             logger.error(f"❌ Ensemble prediction error: {str(e)}")
@@ -1082,204 +835,6 @@ def test_symptom_validation():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/test-somali-disease-rules', methods=['POST'])
-def test_somali_disease_rules():
-    """
-    DEBUG endpoint to test Somali disease rules application
-    """
-    try:
-        data = request.get_json()
-        somali_symptoms = data.get('symptoms', 'Waxaan qabaa qandho iyo madax xanuun')
-        
-        result = {
-            'somali_symptoms': somali_symptoms,
-            'disease_rules_available': bool(DISEASE_RULES),
-            'applied_rules': [],
-            'rule_adjustments': {}
-        }
-        
-        if not DISEASE_RULES:
-            result['error'] = 'Disease rules not available'
-            return jsonify(result), 503
-        
-        # Test the disease rules application
-        symptoms_lower = somali_symptoms.lower()
-        
-        for disease, rules in DISEASE_RULES.items():
-            boost_score = 0
-            penalize_score = 0
-            
-            # Check boost keywords
-            for keyword in rules.get('boost_keywords', []):
-                if keyword.lower() in symptoms_lower:
-                    boost_score += 1
-                    result['applied_rules'].append(f"BOOST: {keyword} -> {disease}")
-            
-            # Check penalize keywords
-            for keyword in rules.get('penalize_keywords', []):
-                if keyword.lower() in symptoms_lower:
-                    penalize_score += 1
-                    result['applied_rules'].append(f"PENALIZE: {keyword} -> {disease}")
-            
-            # Calculate net adjustment
-            net_adjustment = boost_score - penalize_score
-            
-            if net_adjustment != 0:
-                result['rule_adjustments'][disease] = {
-                    'boost_score': boost_score,
-                    'penalize_score': penalize_score,
-                    'net_adjustment': net_adjustment,
-                    'confidence_adjustment': 0.1 * net_adjustment
-                }
-        
-        return jsonify(result), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/test-pre-filter-diseases', methods=['POST'])
-def test_pre_filter_diseases():
-    """
-    DEBUG endpoint to test disease pre-filtering based on Somali symptoms
-    """
-    try:
-        data = request.get_json()
-        somali_symptoms = data.get('symptoms', 'Waxaan qabaa qandho iyo madax xanuun')
-        
-        result = {
-            'somali_symptoms': somali_symptoms,
-            'disease_rules_available': bool(DISEASE_RULES),
-            'pre_filtered_diseases': None,
-            'disease_scores': {}
-        }
-        
-        if not DISEASE_RULES:
-            result['error'] = 'Disease rules not available'
-            return jsonify(result), 503
-        
-        # Test the pre-filtering
-        pre_filtered = pre_filter_diseases_by_somali_symptoms(somali_symptoms)
-        result['pre_filtered_diseases'] = pre_filtered
-        
-        # Also calculate detailed scores for each disease
-        symptoms_lower = somali_symptoms.lower()
-        
-        for disease, rules in DISEASE_RULES.items():
-            boost_score = 0
-            penalize_score = 0
-            boost_matches = []
-            penalize_matches = []
-            
-            # Check boost keywords
-            for keyword in rules.get('boost_keywords', []):
-                keyword_lower = keyword.lower()
-                if keyword_lower in symptoms_lower:
-                    boost_score += 1
-                    boost_matches.append(keyword)
-            
-            # Check penalize keywords
-            for keyword in rules.get('penalize_keywords', []):
-                keyword_lower = keyword.lower()
-                if keyword_lower in symptoms_lower:
-                    penalize_score += 1
-                    penalize_matches.append(keyword)
-            
-            net_score = boost_score - penalize_score
-            
-            result['disease_scores'][disease] = {
-                'boost_score': boost_score,
-                'penalize_score': penalize_score,
-                'net_score': net_score,
-                'boost_matches': boost_matches,
-                'penalize_matches': penalize_matches,
-                'included_in_pre_filter': net_score > 0
-            }
-        
-        return jsonify(result), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/test-specific-symptoms', methods=['POST'])
-def test_specific_symptoms():
-    """
-    DEBUG endpoint to test specific symptoms with disease rules
-    """
-    try:
-        data = request.get_json()
-        symptoms = data.get('symptoms', 'dhidid, qandho, shuban')
-        
-        result = {
-            'symptoms': symptoms,
-            'disease_rules_available': bool(DISEASE_RULES),
-            'disease_analysis': {},
-            'prediction_changes': {}
-        }
-        
-        if not DISEASE_RULES:
-            result['error'] = 'Disease rules not available'
-            return jsonify(result), 503
-        
-        # Create mock ensemble predictions
-        mock_predictions = {
-            "malaria": 0.3,
-            "migraine": 0.25,
-            "typhoid": 0.2,
-            "common cold": 0.25,
-            "pneumonia": 0.2
-        }
-        
-        # Apply Somali disease rules
-        adjusted_predictions, adjusted_confidences = apply_somali_disease_rules(
-            symptoms,
-            mock_predictions,
-            mock_predictions
-        )
-        
-        # Analyze each disease
-        symptoms_lower = symptoms.lower()
-        
-        for disease, rules in DISEASE_RULES.items():
-            boost_matches = []
-            penalize_matches = []
-            
-            # Check boost keywords
-            for keyword in rules.get('boost_keywords', []):
-                if keyword.lower() in symptoms_lower:
-                    boost_matches.append(keyword)
-            
-            # Check penalize keywords
-            for keyword in rules.get('penalize_keywords', []):
-                if keyword.lower() in symptoms_lower:
-                    penalize_matches.append(keyword)
-            
-            net_score = len(boost_matches) - len(penalize_matches)
-            
-            result['disease_analysis'][disease] = {
-                'boost_matches': boost_matches,
-                'penalize_matches': penalize_matches,
-                'net_score': net_score,
-                'original_confidence': mock_predictions.get(disease, 0),
-                'adjusted_confidence': adjusted_confidences.get(disease, mock_predictions.get(disease, 0))
-            }
-        
-        # Calculate prediction changes
-        original_best = max(mock_predictions, key=mock_predictions.get)
-        new_best = max(adjusted_confidences, key=adjusted_confidences.get)
-        
-        result['prediction_changes'] = {
-            'original_best': original_best,
-            'original_confidence': mock_predictions[original_best],
-            'new_best': new_best,
-            'new_confidence': adjusted_confidences[new_best],
-            'prediction_changed': original_best != new_best
-        }
-        
-        return jsonify(result), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/history', methods=['GET'])
 def get_history():
     user_id = request.args.get('user_id')
@@ -1366,7 +921,6 @@ def health_check():
         'status': 'healthy',
         'deep_translator_available': translator is not None,
         'openai_available': openai_client is not None,
-        'disease_rules_available': bool(DISEASE_RULES),
         'models_loaded': len(models),
         'model_names': list(models.keys()),
         'model_weights': model_weights,
@@ -1436,9 +990,9 @@ def get_chat_history():
         logger.error(f'❌ Error retrieving chat history: {str(e)}')
         return jsonify({'error': str(e)}), 500
 
-def ensemble_predict(symptoms_vector, symptoms_text, somali_symptoms=None, detected_lang=None):
+def ensemble_predict(symptoms_vector, symptoms_text):
     """
-    Make ensemble prediction using all available models with optional Somali disease rules
+    Make ensemble prediction using all available models
     """
     predictions = {}
     confidences = {}
@@ -1503,63 +1057,6 @@ def ensemble_predict(symptoms_vector, symptoms_text, somali_symptoms=None, detec
     avg_confidence = np.mean(list(confidences.values()))
     
     logger.info(f"🎯 ENSEMBLE RESULT: '{final_prediction}' (confidence: {final_confidence:.4f}, avg: {avg_confidence:.4f})")
-    
-    # Apply Somali disease rules if input is Somali
-    if detected_lang == 'som' and somali_symptoms and DISEASE_RULES:
-        logger.info(f"🔍 DEBUG: === SOMALI DISEASE RULES ACTIVATED ===")
-        logger.info(f"🔍 DEBUG: Detected language: {detected_lang}")
-        logger.info(f"🔍 DEBUG: Somali symptoms: '{somali_symptoms}'")
-        logger.info(f"🔍 DEBUG: Disease rules available: {bool(DISEASE_RULES)}")
-        logger.info(f"🔍 DEBUG: Number of disease rules: {len(DISEASE_RULES)}")
-        logger.info(f"🔍 DEBUG: Applying Somali disease rules for better accuracy")
-        
-        # Create a mapping of predictions to confidences for rule application
-        prediction_confidence_map = {}
-        for prediction in set(predictions.values()):
-            # Calculate average confidence for this prediction across all models
-            pred_confidences = [confidences[model] for model, pred in predictions.items() if pred == prediction]
-            if pred_confidences:
-                prediction_confidence_map[prediction] = np.mean(pred_confidences)
-        
-        logger.info(f"🔍 DEBUG: Prediction confidence map before rules: {prediction_confidence_map}")
-        
-        # Apply Somali disease rules
-        adjusted_predictions, adjusted_confidences = apply_somali_disease_rules(
-            somali_symptoms, 
-            prediction_confidence_map, 
-            prediction_confidence_map
-        )
-        
-        logger.info(f"🔍 DEBUG: Adjusted predictions after rules: {adjusted_predictions}")
-        logger.info(f"🔍 DEBUG: Adjusted confidences after rules: {adjusted_confidences}")
-        
-        # Update final prediction if rules changed it
-        if adjusted_predictions:
-            new_final_prediction = list(adjusted_predictions.keys())[0]
-            new_final_confidence = list(adjusted_predictions.values())[0]
-            
-            logger.info(f"🔍 DEBUG: Original final prediction: '{final_prediction}' ({final_confidence:.3f})")
-            logger.info(f"🔍 DEBUG: New final prediction after rules: '{new_final_prediction}' ({new_final_confidence:.3f})")
-            
-            if new_final_prediction != final_prediction:
-                logger.info(f"🔄 Somali rules CHANGED prediction: '{final_prediction}' -> '{new_final_prediction}'")
-                final_prediction = new_final_prediction
-                final_confidence = new_final_confidence
-            else:
-                logger.info(f"✅ Somali rules CONFIRMED prediction: '{final_prediction}'")
-        else:
-            logger.warning(f"⚠️ DEBUG: No adjusted predictions returned from disease rules")
-    else:
-        logger.info(f"🔍 DEBUG: === SOMALI DISEASE RULES NOT ACTIVATED ===")
-        logger.info(f"🔍 DEBUG: Detected language: {detected_lang}")
-        logger.info(f"🔍 DEBUG: Somali symptoms provided: {somali_symptoms is not None}")
-        logger.info(f"🔍 DEBUG: Disease rules available: {bool(DISEASE_RULES)}")
-        if detected_lang != 'som':
-            logger.info(f"🔍 DEBUG: Skipping Somali rules - language is not Somali")
-        elif not somali_symptoms:
-            logger.info(f"🔍 DEBUG: Skipping Somali rules - no Somali symptoms provided")
-        elif not DISEASE_RULES:
-            logger.info(f"🔍 DEBUG: Skipping Somali rules - disease rules not available")
     
     return {
         'prediction': final_prediction,
