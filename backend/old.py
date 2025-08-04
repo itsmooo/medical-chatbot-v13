@@ -61,6 +61,14 @@ except ImportError as e:
     logger.error(f"❌ Failed to import precautions: {e}")
     disease_precautions = {}
 
+# Import disease rules for Somali symptom analysis
+try:
+    from disease_rules import DISEASE_RULES
+    logger.info("✅ Successfully imported disease rules")
+except ImportError as e:
+    logger.error(f"❌ Failed to import disease rules: {e}")
+    DISEASE_RULES = {}
+
 # Initialize Deep Translator with better error handling
 try:
     # Test basic translation
@@ -406,9 +414,7 @@ def get_somali_precautions_for_disease(disease_name):
         return [
             "La tashii dhakhtar si aad u hesho daaweyn sax ah.",
             "Hel nasasho badan oo cab biyo badan.",
-            "Raac talada dhakhtarkaaga oo qaado daawooyinka laguu qoro.",
-            "Ka fogow waxyaabaha sii daraya xaaladaada.",
-            "Haddii calaamadaha sii daraan, dhaqso ugu tag isbitaalka."
+            "Raac talada dhakhtarkaaga oo qaado daawooyinka laguu qoro."
         ]
         
     except Exception as e:
@@ -462,65 +468,269 @@ def translate_precautions(precautions, target_lang="so"):
             translated.append(p)
     return translated
 
-def validate_symptoms_with_openai(symptoms_text, language='en'):
+def validate_symptoms_rule_based(symptoms_text, language='en'):
     """
-    Use OpenAI to validate whether the input contains valid medical symptoms
+    Rule-based validation for medical symptoms - works without OpenAI
+    Validates against common medical symptoms for the 8 trained diseases
     """
-    if not openai_client:
-        logger.warning("⚠️ OpenAI not available, skipping symptom validation")
+    try:
+        logger.info(f"🔍 Rule-based validation for: '{symptoms_text[:50]}...'")
+        
+        # Convert to lowercase for matching
+        symptoms_lower = symptoms_text.lower()
+        
+        # Define medical symptom keywords for each language
+        if language == 'som':
+            # Somali medical symptom keywords
+            medical_keywords = [
+                # General symptoms
+                'qandho', 'dhidid', 'xanuun', 'daal', 'qaraar', 'shuban',
+                'madax', 'calool', 'jilib', 'xabad', 'sanka', 'indho',
+                'cuna', 'kaadi', 'matag', 'neefsasho', 'qufac', 'hindhis',
+                'dareen', 'dhawaaqa', 'fuuqbaxa', 'hargab', 'cuncun',
+                # Specific symptoms from user input
+                'madax xanuun', 'lalabbo', 'mataq', 'iftiin xanuun', 
+                'aragti xasaasi', 'cod xanuun', 'dareen xasaasi', 
+                'aragti lumo', 'blurry vision', 'indho ku wareegsan',
+                'iftiin dhalaalaya', 'auras', 'wareer', 'xasaasiyad',
+                'xasaasiyad culus', 'wareer', 'daal',
+                # Additional common symptoms
+                'qandho', 'dhidid', 'shuban', 'qaraar', 'hindhis',
+                'fuuqbaxa', 'hargab', 'cuncun', 'kaadi', 'matag',
+                # Disease-specific symptoms
+                'sonkor', 'duuma', 'kaneeco', 'burunkii', 'infekshan',
+                'haraad', 'saddex', 'shidaal', 'dabaylaha', 'xamaasad'
+            ]
+            
+            # Non-medical keywords that should invalidate (Somali)
+            non_medical_keywords = [
+                'lacag', 'baabuur', 'guri', 'shaqo', 'cashar', 'cunto',
+                'bixi', 'tag', 'keen', 'nabad', 'nabadgelyo', 'telefon',
+                'internet', 'facebook', 'whatsapp', 'film', 'heeso'
+            ]
+        else:
+            # English medical symptom keywords
+            medical_keywords = [
+                # General symptoms
+                'pain', 'fever', 'headache', 'cough', 'fatigue', 'nausea',
+                'vomiting', 'diarrhea', 'constipation', 'dizziness', 'weakness',
+                'chest', 'stomach', 'throat', 'nose', 'eye', 'ear', 'back',
+                'joint', 'muscle', 'breathing', 'breath', 'swelling', 'rash',
+                'itch', 'burn', 'ache', 'sore', 'hurt', 'sick', 'ill', 'blood',
+                'urine', 'bowel', 'appetite', 'sleep', 'tired', 'chills',
+                # Disease-specific symptoms
+                'diabetes', 'sugar', 'insulin', 'malaria', 'mosquito', 'bite',
+                'pneumonia', 'lung', 'infection', 'bacteria', 'virus',
+                'migraine', 'headache', 'cold', 'flu', 'runny', 'congestion',
+                'urinary', 'tract', 'fungal', 'typhoid', 'temperature'
+            ]
+            
+            # Non-medical keywords that should invalidate (English)
+            non_medical_keywords = [
+                'money', 'car', 'house', 'work', 'job', 'school', 'food',
+                'phone', 'computer', 'internet', 'facebook', 'game', 'movie',
+                'music', 'sport', 'weather', 'politics', 'news', 'hello',
+                'goodbye', 'thanks', 'please', 'how are you', 'what time'
+            ]
+        
+        # Count medical vs non-medical keywords
+        medical_count = 0
+        non_medical_count = 0
+        
+        # More sophisticated matching for Somali
+        if language == 'som':
+            # Check for exact matches first
+            for keyword in medical_keywords:
+                if keyword in symptoms_lower:
+                    medical_count += 1
+            
+            # Check for partial matches and common Somali medical terms
+            somali_medical_indicators = [
+                'xanuun', 'daal', 'qandho', 'dhidid', 'wareer', 'mataq', 'lalabbo',
+                'madax', 'indho', 'iftiin', 'aragti', 'cod', 'dareen', 'xasaasiyad',
+                'xasaasi', 'dhalaalaya', 'lumo', 'wareegsan', 'culus', 'daran'
+            ]
+            
+            for indicator in somali_medical_indicators:
+                if indicator in symptoms_lower and indicator not in [kw for kw in medical_keywords if indicator in kw]:
+                    medical_count += 1
+        else:
+            # English matching (original logic)
+            for keyword in medical_keywords:
+                if keyword in symptoms_lower:
+                    medical_count += 1
+        
+        for keyword in non_medical_keywords:
+            if keyword in symptoms_lower:
+                non_medical_count += 1
+        
+        # Check for common non-medical patterns
+        non_medical_patterns = [
+            'hello', 'hi', 'how are you', 'good morning', 'good evening',
+            'what is', 'how to', 'when is', 'where is', 'why is',
+            'test', 'testing', '123', 'abc'
+        ]
+        
+        pattern_matches = sum(1 for pattern in non_medical_patterns if pattern in symptoms_lower)
+        
+        # Validation logic
+        text_length = len(symptoms_text.strip())
+        
+        # Too short
+        if text_length < 3:
+            return {
+                'is_valid': False,
+                'confidence': 0.9,
+                'reason': 'Text too short to contain meaningful medical symptoms',
+                'suggestions': ['fever', 'headache', 'cough', 'pain'] if language == 'en' else ['qandho', 'madax xanuun', 'dhidid', 'xanuun']
+            }
+        
+        # Contains non-medical patterns
+        if pattern_matches > 0:
+            return {
+                'is_valid': False,
+                'confidence': 0.8,
+                'reason': 'Text appears to be greeting or non-medical query',
+                'suggestions': ['fever and cough', 'headache and nausea', 'stomach pain'] if language == 'en' else ['qandho iyo dhidid', 'madax xanuun', 'calool xanuun']
+            }
+        
+        # Too many non-medical keywords
+        if non_medical_count > medical_count:
+            # Be more lenient for Somali - only reject if significantly more non-medical
+            if language == 'som' and medical_count >= 1 and non_medical_count <= medical_count + 2:
+                # Allow some non-medical content in Somali if we have medical symptoms
+                pass
+            else:
+                return {
+                    'is_valid': False,
+                    'confidence': 0.7,
+                    'reason': 'Text contains more non-medical content than medical symptoms',
+                    'suggestions': ['describe your symptoms like: pain, fever, cough'] if language == 'en' else ['ku sharax calaamahaaga sida: xanuun, qandho, dhidid']
+                }
+        
+        # No medical keywords found
+        if medical_count == 0:
+            # Special handling for Somali - check if text contains medical context
+            if language == 'som':
+                # Check for medical context indicators in Somali
+                medical_context_indicators = [
+                    'badanaa', 'hal dhinac', 'aragti xasaasi', 'dareen xasaasi',
+                    'blurry vision', 'auras', 'culus marka', 'la socdo', 'la hadlo'
+                ]
+                context_matches = sum(1 for indicator in medical_context_indicators if indicator in symptoms_lower)
+                
+                if context_matches > 0:
+                    return {
+                        'is_valid': True,
+                        'confidence': 0.7,
+                        'reason': f'Found {context_matches} medical context indicators in Somali text',
+                        'suggestions': []
+                    }
+            
+            return {
+                'is_valid': False,
+                'confidence': 0.8,
+                'reason': 'No recognizable medical symptoms found',
+                'suggestions': ['fever', 'headache', 'cough', 'pain', 'nausea'] if language == 'en' else ['qandho', 'madax xanuun', 'dhidid', 'xanuun', 'shuban', 'lalabbo', 'mataq', 'wareer']
+            }
+        
+        # Valid medical symptoms found
+        confidence = min(0.9, 0.5 + (medical_count * 0.1))
+        
+        # Be more lenient for Somali language
+        if language == 'som' and medical_count >= 1:
+            confidence = max(confidence, 0.7)  # Minimum 70% confidence for Somali with at least 1 medical keyword
+            
         return {
             'is_valid': True,
-            'confidence': 0.8,
-            'reason': 'OpenAI validation skipped',
+            'confidence': confidence,
+            'reason': f'Found {medical_count} medical symptom keywords',
             'suggestions': []
         }
+        
+    except Exception as e:
+        logger.error(f"❌ Rule-based validation error: {str(e)}")
+        return {
+            'is_valid': False,
+            'confidence': 0.3,
+            'reason': 'Validation error occurred',
+            'suggestions': []
+        }
+
+def validate_symptoms_with_openai(symptoms_text, language='en'):
+    """
+    Enhanced OpenAI validation specifically for the 8 trained diseases
+    """
+    if not openai_client:
+        logger.warning("⚠️ OpenAI not available, using rule-based validation only")
+        return validate_symptoms_rule_based(symptoms_text, language)
     
     try:
-        # Create a prompt for symptom validation
+        # Create a more specific prompt for the 8 diseases
+        diseases_list = "malaria, typhoid, pneumonia, common cold, migraine, diabetes, urinary tract infection, fungal infection"
+        
         if language == 'som':
+            print(f"🔍 Somali validation: '{symptoms_text[:50]}...'")
             prompt = f"""
-            Analyze the following Somali text and determine if it contains valid medical symptoms.
+            You are a medical expert specializing in Somali language medical symptoms. Analyze this Somali text to determine if it contains valid medical symptoms that could indicate one of these diseases: {diseases_list}.
+
             Text: "{symptoms_text}"
             
-            Respond with a JSON object containing:
-            - is_valid: boolean (true if valid medical symptoms, false if not)
-            - confidence: float (0.0 to 1.0)
-            - reason: string (explanation of the decision)
-            - suggestions: array of strings (if invalid, suggest what might be valid symptoms)
+            IMPORTANT: Somali medical symptoms include terms like:
+            - madax xanuun (headache)
+            - lalabbo (nausea)
+            - mataq (vomiting)
+            - iftiin xanuun (light sensitivity)
+            - aragti xasaasi (sensitive vision)
+            - cod xanuun (sound sensitivity)
+            - dareen xasaasi (sensitive hearing)
+            - aragti lumo (blurry vision)
+            - indho ku wareegsan (eye pain)
+            - iftiin dhalaalaya (auras)
+            - wareer (dizziness)
+            - xasaasiyad (sensitivity)
+            - daal (pain)
+            - qandho (fever)
+            - dhidid (cough)
             
-            Valid medical symptoms include: pain, fever, cough, headache, nausea, vomiting, 
-            fatigue, dizziness, rash, swelling, difficulty breathing, chest pain, etc.
+            Return true if the text contains ANY of these medical symptoms or similar medical terms in Somali.
             
-            Only respond with the JSON object, no additional text.
+            Respond with ONLY a JSON object:
+            {{
+                "is_valid": boolean,
+                "confidence": float (0.0-1.0),
+                "reason": "brief explanation",
+                "suggestions": ["symptom1", "symptom2"]
+            }}
             """
         else:
             prompt = f"""
-            Analyze the following text and determine if it contains valid medical symptoms.
+            You are a medical expert. Analyze this text to determine if it contains valid medical symptoms that could indicate one of these diseases: {diseases_list}.
+
             Text: "{symptoms_text}"
             
-            Respond with a JSON object containing:
-            - is_valid: boolean (true if valid medical symptoms, false if not)
-            - confidence: float (0.0 to 1.0)
-            - reason: string (explanation of the decision)
-            - suggestions: array of strings (if invalid, suggest what might be valid symptoms)
+            BE STRICT: Only return true if the text contains actual medical symptoms either in English or Somali. Reject greetings, non-medical text, random words, or irrelevant content.
             
-            Valid medical symptoms include: pain, fever, cough, headache, nausea, vomiting, 
-            fatigue, dizziness, rash, swelling, difficulty breathing, chest pain, etc.
-            
-            Only respond with the JSON object, no additional text.
+            Respond with ONLY a JSON object:
+            {{
+                "is_valid": boolean,
+                "confidence": float (0.0-1.0),
+                "reason": "brief explanation",
+                "suggestions": ["symptom1", "symptom2"]
+            }}
             """
         
-        logger.info(f"🔍 Validating symptoms with OpenAI: '{symptoms_text[:50]}...'")
+        logger.info(f"🔍 Enhanced OpenAI validation: '{symptoms_text[:50]}...'")
         
         # Make API call to OpenAI
         response = openai_client.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a medical assistant that validates whether text contains legitimate medical symptoms."},
+                {"role": "system", "content": "You are a strict medical symptom validator. Only validate true medical symptoms. Reject any non-medical content."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=300,
-            temperature=0.1
+            max_tokens=200,
+            temperature=0.0  # Make it more deterministic
         )
         
         # Parse the response
@@ -534,35 +744,252 @@ def validate_symptoms_with_openai(symptoms_text, language='en'):
             
             # Ensure required fields exist
             if 'is_valid' not in validation_result:
-                validation_result['is_valid'] = True
+                validation_result['is_valid'] = False  # Default to invalid for safety
             if 'confidence' not in validation_result:
-                validation_result['confidence'] = 0.8
+                validation_result['confidence'] = 0.5
             if 'reason' not in validation_result:
-                validation_result['reason'] = 'Validation completed'
+                validation_result['reason'] = 'OpenAI validation completed'
             if 'suggestions' not in validation_result:
                 validation_result['suggestions'] = []
             
-            logger.info(f"✅ Symptom validation result: {validation_result['is_valid']} (confidence: {validation_result['confidence']})")
+            logger.info(f"✅ OpenAI validation result: {validation_result['is_valid']} (confidence: {validation_result['confidence']})")
             return validation_result
             
         except json.JSONDecodeError as e:
             logger.error(f"❌ Failed to parse OpenAI JSON response: {str(e)}")
-            # Fallback validation
-            return {
-                'is_valid': True,
-                'confidence': 0.7,
-                'reason': 'OpenAI response parsing failed, defaulting to valid',
-                'suggestions': []
-            }
+            # Fallback to rule-based validation
+            logger.info("🔄 Falling back to rule-based validation")
+            return validate_symptoms_rule_based(symptoms_text, language)
             
     except Exception as e:
         logger.error(f"❌ OpenAI validation error: {str(e)}")
-        return {
-            'is_valid': True,
-            'confidence': 0.6,
-            'reason': f'OpenAI validation failed: {str(e)}',
-            'suggestions': []
-        }
+        # Fallback to rule-based validation
+        logger.info("🔄 Falling back to rule-based validation")
+        return validate_symptoms_rule_based(symptoms_text, language)
+
+def apply_somali_disease_rules(somali_symptoms, ensemble_predictions, ensemble_confidences):
+    """
+    Apply Somali disease rules to improve prediction accuracy for similar diseases
+    """
+    try:
+        logger.info(f"🔍 DEBUG: Applying Somali disease rules to: '{somali_symptoms[:50]}...'")
+        logger.info(f"🔍 DEBUG: Disease rules available: {bool(DISEASE_RULES)}")
+        logger.info(f"🔍 DEBUG: Number of disease rules: {len(DISEASE_RULES) if DISEASE_RULES else 0}")
+        
+        if not DISEASE_RULES:
+            logger.warning("⚠️ Disease rules not available, skipping Somali rule application")
+            return ensemble_predictions, ensemble_confidences
+        
+        # Convert symptoms to lowercase for matching
+        symptoms_lower = somali_symptoms.lower()
+        logger.info(f"🔍 DEBUG: Symptoms (lowercase): '{symptoms_lower}'")
+        
+        # Track rule-based adjustments
+        rule_adjustments = {}
+        applied_rules = []
+        disease_scores = {}
+        
+        logger.info(f"🔍 DEBUG: Starting disease rule analysis...")
+        
+        # Calculate scores for each disease based on Somali symptoms
+        for disease, rules in DISEASE_RULES.items():
+            logger.info(f"🔍 DEBUG: Analyzing disease: '{disease}'")
+            
+            boost_score = 0
+            penalize_score = 0
+            boost_matches = []
+            penalize_matches = []
+            
+            # Check boost keywords with exact matching
+            boost_keywords = rules.get('boost_keywords', [])
+            logger.info(f"🔍 DEBUG: Boost keywords for '{disease}': {boost_keywords}")
+            
+            for keyword in boost_keywords:
+                keyword_lower = keyword.lower()
+                if keyword_lower in symptoms_lower:
+                    boost_score += 1
+                    boost_matches.append(keyword)
+                    applied_rules.append(f"BOOST: '{keyword}' -> {disease}")
+                    logger.info(f"✅ DEBUG: BOOST MATCH: '{keyword}' found in symptoms for '{disease}'")
+                else:
+                    logger.info(f"❌ DEBUG: No boost match for '{keyword}' in '{disease}'")
+            
+            # Check penalize keywords with exact matching
+            penalize_keywords = rules.get('penalize_keywords', [])
+            logger.info(f"🔍 DEBUG: Penalize keywords for '{disease}': {penalize_keywords}")
+            
+            for keyword in penalize_keywords:
+                keyword_lower = keyword.lower()
+                if keyword_lower in symptoms_lower:
+                    penalize_score += 1
+                    penalize_matches.append(keyword)
+                    applied_rules.append(f"PENALIZE: '{keyword}' -> {disease}")
+                    logger.info(f"❌ DEBUG: PENALIZE MATCH: '{keyword}' found in symptoms for '{disease}'")
+                else:
+                    logger.info(f"✅ DEBUG: No penalize match for '{keyword}' in '{disease}'")
+            
+            # Calculate net score (boost - penalize)
+            net_score = boost_score - penalize_score
+            logger.info(f"📊 DEBUG: Disease '{disease}' final score: boost={boost_score}, penalize={penalize_score}, net={net_score}")
+            
+            # Store scores for all diseases, even if net_score is 0
+            disease_scores[disease] = {
+                'boost_score': boost_score,
+                'penalize_score': penalize_score,
+                'net_score': net_score,
+                'boost_matches': boost_matches,
+                'penalize_matches': penalize_matches
+            }
+            
+            if net_score != 0:
+                rule_adjustments[disease] = net_score
+                logger.info(f"📊 Disease '{disease}': boost={boost_score} ({boost_matches}), penalize={penalize_score} ({penalize_matches}), net={net_score}")
+            else:
+                logger.info(f"⚠️ DEBUG: No adjustments for '{disease}' (net_score=0)")
+        
+        logger.info(f"🔍 DEBUG: Rule adjustments calculated: {rule_adjustments}")
+        logger.info(f"🔍 DEBUG: Applied rules: {applied_rules}")
+        
+        # Apply adjustments to ensemble predictions
+        adjusted_predictions = ensemble_predictions.copy()
+        adjusted_confidences = ensemble_confidences.copy()
+        
+        logger.info(f"🔍 DEBUG: Original ensemble confidences: {ensemble_confidences}")
+        
+        # NEW: Force diseases with strong keyword matches into the prediction
+        forced_diseases = {}
+        for disease, score_info in disease_scores.items():
+            net_score = score_info['net_score']
+            
+            # If a disease has strong positive matches and isn't in ensemble, force it in
+            if net_score > 0 and disease not in adjusted_confidences:
+                # Force the disease into predictions with a base confidence
+                base_confidence = 0.3 + (0.1 * net_score)  # Base 0.3 + 0.1 per positive match
+                forced_diseases[disease] = base_confidence
+                logger.info(f"🎯 FORCED '{disease}' into predictions: {base_confidence:.3f} (net_score={net_score})")
+            
+            # If a disease has strong negative matches and is in ensemble, heavily penalize it
+            elif net_score < 0 and disease in adjusted_confidences:
+                original_confidence = adjusted_confidences[disease]
+                penalize_factor = 0.3 * abs(net_score)  # 30% per negative match
+                new_confidence = max(0.0, original_confidence - penalize_factor)
+                adjusted_confidences[disease] = new_confidence
+                logger.info(f"🎯 HEAVILY PENALIZED '{disease}': {original_confidence:.3f} -> {new_confidence:.3f} (-{penalize_factor:.3f})")
+        
+        # Add forced diseases to adjusted confidences
+        adjusted_confidences.update(forced_diseases)
+        
+        # Calculate adjustment factors based on disease scores for existing diseases
+        for disease, score_info in disease_scores.items():
+            if disease in adjusted_confidences and disease not in forced_diseases:
+                original_confidence = adjusted_confidences[disease]
+                net_score = score_info['net_score']
+                
+                logger.info(f"🔍 DEBUG: Adjusting '{disease}': original_confidence={original_confidence:.3f}, net_score={net_score}")
+                
+                # More sophisticated adjustment based on number of matches
+                if net_score > 0:
+                    # Boost confidence based on number of positive matches
+                    boost_factor = 0.2 * net_score  # 20% per positive match (increased from 15%)
+                    new_confidence = min(1.0, original_confidence + boost_factor)
+                    logger.info(f"🎯 BOOSTED '{disease}': {original_confidence:.3f} -> {new_confidence:.3f} (+{boost_factor:.3f})")
+                else:
+                    # Penalize confidence based on number of negative matches
+                    penalize_factor = 0.2 * abs(net_score)  # 20% per negative match (increased from 15%)
+                    new_confidence = max(0.0, original_confidence - penalize_factor)
+                    logger.info(f"🎯 PENALIZED '{disease}': {original_confidence:.3f} -> {new_confidence:.3f} (-{penalize_factor:.3f})")
+                
+                adjusted_confidences[disease] = new_confidence
+            elif disease not in adjusted_confidences:
+                logger.warning(f"⚠️ DEBUG: Disease '{disease}' not found in ensemble predictions")
+        
+        logger.info(f"🔍 DEBUG: Adjusted confidences: {adjusted_confidences}")
+        
+        # Find the best prediction after adjustments
+        if adjusted_confidences:
+            best_disease = max(adjusted_confidences, key=adjusted_confidences.get)
+            best_confidence = adjusted_confidences[best_disease]
+            
+            # Check if the prediction changed due to Somali rules
+            original_best = max(ensemble_confidences, key=ensemble_confidences.get) if ensemble_confidences else None
+            original_confidence = ensemble_confidences.get(original_best, 0) if original_best else 0
+            
+            logger.info(f"🔍 DEBUG: Original best prediction: '{original_best}' ({original_confidence:.3f})")
+            logger.info(f"🔍 DEBUG: New best prediction: '{best_disease}' ({best_confidence:.3f})")
+            
+            if original_best and best_disease != original_best:
+                logger.info(f"🔄 Somali rules CHANGED prediction: '{original_best}' ({original_confidence:.3f}) -> '{best_disease}' ({best_confidence:.3f})")
+            elif original_best:
+                logger.info(f"✅ Somali rules CONFIRMED prediction: '{best_disease}' ({best_confidence:.3f})")
+            
+            logger.info(f"🏆 Final prediction after Somali rules: '{best_disease}' (confidence: {best_confidence:.3f})")
+            logger.info(f"📝 Applied rules: {applied_rules}")
+            
+            # Return the best prediction and all adjusted confidences
+            return {best_disease: best_confidence}, adjusted_confidences
+        else:
+            logger.warning("⚠️ No diseases found in ensemble predictions")
+            return ensemble_predictions, ensemble_confidences
+            
+    except Exception as e:
+        logger.error(f"❌ Error applying Somali disease rules: {str(e)}")
+        return ensemble_predictions, ensemble_confidences
+
+def pre_filter_diseases_by_somali_symptoms(somali_symptoms):
+    """
+    Pre-filter diseases based on Somali symptoms to improve prediction accuracy
+    """
+    try:
+        logger.info(f"🔍 Pre-filtering diseases based on Somali symptoms: '{somali_symptoms[:50]}...'")
+        
+        if not DISEASE_RULES:
+            logger.warning("⚠️ Disease rules not available, skipping pre-filtering")
+            return None
+        
+        # Convert symptoms to lowercase for matching
+        symptoms_lower = somali_symptoms.lower()
+        
+        # Calculate initial scores for each disease
+        disease_scores = {}
+        
+        for disease, rules in DISEASE_RULES.items():
+            boost_score = 0
+            penalize_score = 0
+            
+            # Check boost keywords
+            for keyword in rules.get('boost_keywords', []):
+                keyword_lower = keyword.lower()
+                if keyword_lower in symptoms_lower:
+                    boost_score += 1
+            
+            # Check penalize keywords
+            for keyword in rules.get('penalize_keywords', []):
+                keyword_lower = keyword.lower()
+                if keyword_lower in symptoms_lower:
+                    penalize_score += 1
+            
+            # Calculate net score
+            net_score = boost_score - penalize_score
+            
+            if net_score > 0:  # Only consider diseases with positive scores
+                disease_scores[disease] = net_score
+                logger.info(f"📊 Pre-filter: '{disease}' score = {net_score} (boost: {boost_score}, penalize: {penalize_score})")
+        
+        # Return top diseases based on scores
+        if disease_scores:
+            # Sort by score (highest first)
+            sorted_diseases = sorted(disease_scores.items(), key=lambda x: x[1], reverse=True)
+            top_diseases = [disease for disease, score in sorted_diseases if score > 0]
+            
+            logger.info(f"🎯 Pre-filtered diseases: {top_diseases}")
+            return top_diseases
+        else:
+            logger.info("⚠️ No diseases matched Somali symptoms in pre-filtering")
+            return None
+            
+    except Exception as e:
+        logger.error(f"❌ Error in pre-filtering diseases: {str(e)}")
+        return None
   
   
 
@@ -589,23 +1016,74 @@ def predict():
         detected_lang = detect_language_fixed(symptoms, lang_param)
         logger.info(f"🌐 SELECTED LANGUAGE: {detected_lang}")
 
-        # STEP 2: OPENAI SYMPTOM VALIDATION
-        logger.info(f"🔍 STEP 2: Validating symptoms with OpenAI")
-        validation_result = validate_symptoms_with_openai(symptoms, detected_lang)
+        # STEP 2: ENHANCED SYMPTOM VALIDATION
+        logger.info(f"🔍 STEP 2: Enhanced symptom validation")
         
-        # If symptoms are not valid, return error with suggestions
-        if not validation_result['is_valid']:
-            suggestions_text = ""
-            if validation_result['suggestions']:
-                suggestions_text = f" Please provide valid medical symptoms such as: {', '.join(validation_result['suggestions'][:3])}"
-            
-            return jsonify({
-                'message': f'The provided text does not appear to contain valid medical symptoms. {validation_result["reason"]}{suggestions_text}',
-                'type': 'invalid_symptoms',
-                'validation_result': validation_result
-            }), 400
+        # First try rule-based validation (always works)
+        rule_validation = validate_symptoms_rule_based(symptoms, detected_lang)
+        logger.info(f"📋 Rule-based validation: {rule_validation['is_valid']} (confidence: {rule_validation['confidence']:.2f})")
         
-        logger.info(f"✅ Symptom validation passed (confidence: {validation_result['confidence']:.2f})")
+        # Then try OpenAI validation (if available)
+        openai_validation = validate_symptoms_with_openai(symptoms, detected_lang)
+        logger.info(f"🤖 OpenAI validation: {openai_validation['is_valid']} (confidence: {openai_validation['confidence']:.2f})")
+        
+        # Combine both validations - be more lenient for Somali
+        if detected_lang == 'som':
+            # For Somali, accept if EITHER validation passes
+            final_validation = {
+                'is_valid': rule_validation['is_valid'] or openai_validation['is_valid'],
+                'confidence': max(rule_validation['confidence'], openai_validation['confidence']),
+                'reason': f"Rule-based: {rule_validation['is_valid']} ({rule_validation['confidence']:.2f}); OpenAI: {openai_validation['is_valid']} ({openai_validation['confidence']:.2f})",
+                'suggestions': rule_validation['suggestions'] if rule_validation['suggestions'] else openai_validation['suggestions']
+            }
+        else:
+            # For English, require both to pass for strict validation
+            final_validation = {
+                'is_valid': rule_validation['is_valid'] and openai_validation['is_valid'],
+                'confidence': (rule_validation['confidence'] + openai_validation['confidence']) / 2,
+                'reason': f"Rule-based: {rule_validation['reason']}; OpenAI: {openai_validation['reason']}",
+                'suggestions': rule_validation['suggestions'] if rule_validation['suggestions'] else openai_validation['suggestions']
+            }
+        
+        # If either validation fails, return error with suggestions
+        if not final_validation['is_valid']:
+            # Special fallback for Somali - check if it contains obvious medical terms
+            if detected_lang == 'som':
+                symptoms_lower = symptoms.lower()
+                obvious_medical_terms = ['madax', 'xanuun', 'lalabbo', 'mataq', 'wareer', 'daal', 'qandho', 'dhidid']
+                medical_term_count = sum(1 for term in obvious_medical_terms if term in symptoms_lower)
+                
+                if medical_term_count >= 2:  # If at least 2 obvious medical terms found
+                    logger.info(f"🔍 Somali fallback: Found {medical_term_count} obvious medical terms, bypassing validation")
+                    final_validation['is_valid'] = True
+                    final_validation['confidence'] = 0.8
+                    final_validation['reason'] = f"Fallback: Found {medical_term_count} obvious Somali medical terms"
+                else:
+                    suggestions_text = ""
+                    if final_validation['suggestions']:
+                        suggestions_text = f" Please provide valid medical symptoms such as: {', '.join(final_validation['suggestions'][:3])}"
+                    
+                    return jsonify({
+                        'message': f'The provided text does not appear to contain valid medical symptoms. {final_validation["reason"]}{suggestions_text}',
+                        'type': 'invalid_symptoms',
+                        'validation_result': final_validation,
+                        'rule_validation': rule_validation,
+                        'openai_validation': openai_validation
+                    }), 400
+            else:
+                suggestions_text = ""
+                if final_validation['suggestions']:
+                    suggestions_text = f" Please provide valid medical symptoms such as: {', '.join(final_validation['suggestions'][:3])}"
+                
+                return jsonify({
+                    'message': f'The provided text does not appear to contain valid medical symptoms. {final_validation["reason"]}{suggestions_text}',
+                    'type': 'invalid_symptoms',
+                    'validation_result': final_validation,
+                    'rule_validation': rule_validation,
+                    'openai_validation': openai_validation
+                }), 400
+        
+        logger.info(f"✅ Enhanced symptom validation passed (combined confidence: {final_validation['confidence']:.2f})")
 
         # STEP 3: TRANSLATE SYMPTOMS TO ENGLISH
         if detected_lang == 'som':
@@ -620,13 +1098,30 @@ def predict():
         try:
             symptoms_vector = create_model_vector(english_symptoms)
             
-            # Use ensemble prediction with all available models
-            ensemble_result = ensemble_predict(symptoms_vector, english_symptoms)
+            # Use ensemble prediction with all available models and Somali disease rules
+            somali_symptoms_for_rules = symptoms if detected_lang == 'som' else None
+            
+            logger.info(f"🔍 DEBUG: === ENSEMBLE PREDICTION WITH DISEASE RULES ===")
+            logger.info(f"🔍 DEBUG: Detected language: {detected_lang}")
+            logger.info(f"🔍 DEBUG: Original symptoms: '{symptoms}'")
+            logger.info(f"🔍 DEBUG: English symptoms: '{english_symptoms}'")
+            logger.info(f"🔍 DEBUG: Somali symptoms for rules: '{somali_symptoms_for_rules}'")
+            logger.info(f"🔍 DEBUG: Disease rules available: {bool(DISEASE_RULES)}")
+            
+            ensemble_result = ensemble_predict(
+                symptoms_vector, 
+                english_symptoms, 
+                somali_symptoms=somali_symptoms_for_rules,
+                detected_lang=detected_lang
+            )
             prediction_english = ensemble_result['prediction']
             confidence = ensemble_result['confidence']
             
             logger.info(f"✅ ENSEMBLE PREDICTION: '{prediction_english}' (confidence: {confidence:.4f})")
             logger.info(f"📊 Used {ensemble_result['model_count']} models for prediction")
+            if detected_lang == 'som':
+                logger.info(f"🔍 Applied Somali disease rules for improved accuracy")
+                logger.info(f"🔍 DEBUG: Final prediction after disease rules: '{prediction_english}'")
 
         except Exception as e:
             logger.error(f"❌ Ensemble prediction error: {str(e)}")
@@ -635,12 +1130,13 @@ def predict():
                 'type': 'error'
             }), 500
 
-        # Check confidence threshold
-        if confidence < 0.20:
+        # Check confidence threshold - increased for better accuracy
+        if confidence < 0.30:
             return jsonify({
-                'message': f'System confidence too low ({(confidence * 100):.0f}%). Please provide more details.',
+                'message': f'System confidence too low ({(confidence * 100):.0f}%). Please provide more specific medical symptoms.',
                 'type': 'low_confidence',
-                'confidence': float(confidence)
+                'confidence': float(confidence),
+                'suggestions': ['fever', 'headache', 'cough', 'pain', 'nausea'] if detected_lang == 'en' else ['qandho', 'madax xanuun', 'dhidid', 'xanuun', 'shuban']
             }), 200
 
         # STEP 5: GET SOMALI PRECAUTIONS
@@ -835,6 +1331,284 @@ def test_symptom_validation():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/test-somali-disease-rules', methods=['POST'])
+def test_somali_disease_rules():
+    """
+    DEBUG endpoint to test Somali disease rules application
+    """
+    try:
+        data = request.get_json()
+        somali_symptoms = data.get('symptoms', 'Waxaan qabaa qandho iyo madax xanuun')
+        
+        result = {
+            'somali_symptoms': somali_symptoms,
+            'disease_rules_available': bool(DISEASE_RULES),
+            'applied_rules': [],
+            'rule_adjustments': {}
+        }
+        
+        if not DISEASE_RULES:
+            result['error'] = 'Disease rules not available'
+            return jsonify(result), 503
+        
+        # Test the disease rules application
+        symptoms_lower = somali_symptoms.lower()
+        
+        for disease, rules in DISEASE_RULES.items():
+            boost_score = 0
+            penalize_score = 0
+            
+            # Check boost keywords
+            for keyword in rules.get('boost_keywords', []):
+                if keyword.lower() in symptoms_lower:
+                    boost_score += 1
+                    result['applied_rules'].append(f"BOOST: {keyword} -> {disease}")
+            
+            # Check penalize keywords
+            for keyword in rules.get('penalize_keywords', []):
+                if keyword.lower() in symptoms_lower:
+                    penalize_score += 1
+                    result['applied_rules'].append(f"PENALIZE: {keyword} -> {disease}")
+            
+            # Calculate net adjustment
+            net_adjustment = boost_score - penalize_score
+            
+            if net_adjustment != 0:
+                result['rule_adjustments'][disease] = {
+                    'boost_score': boost_score,
+                    'penalize_score': penalize_score,
+                    'net_adjustment': net_adjustment,
+                    'confidence_adjustment': 0.1 * net_adjustment
+                }
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/test-pre-filter-diseases', methods=['POST'])
+def test_pre_filter_diseases():
+    """
+    DEBUG endpoint to test disease pre-filtering based on Somali symptoms
+    """
+    try:
+        data = request.get_json()
+        somali_symptoms = data.get('symptoms', 'Waxaan qabaa qandho iyo madax xanuun')
+        
+        result = {
+            'somali_symptoms': somali_symptoms,
+            'disease_rules_available': bool(DISEASE_RULES),
+            'pre_filtered_diseases': None,
+            'disease_scores': {}
+        }
+        
+        if not DISEASE_RULES:
+            result['error'] = 'Disease rules not available'
+            return jsonify(result), 503
+        
+        # Test the pre-filtering
+        pre_filtered = pre_filter_diseases_by_somali_symptoms(somali_symptoms)
+        result['pre_filtered_diseases'] = pre_filtered
+        
+        # Also calculate detailed scores for each disease
+        symptoms_lower = somali_symptoms.lower()
+        
+        for disease, rules in DISEASE_RULES.items():
+            boost_score = 0
+            penalize_score = 0
+            boost_matches = []
+            penalize_matches = []
+            
+            # Check boost keywords
+            for keyword in rules.get('boost_keywords', []):
+                keyword_lower = keyword.lower()
+                if keyword_lower in symptoms_lower:
+                    boost_score += 1
+                    boost_matches.append(keyword)
+            
+            # Check penalize keywords
+            for keyword in rules.get('penalize_keywords', []):
+                keyword_lower = keyword.lower()
+                if keyword_lower in symptoms_lower:
+                    penalize_score += 1
+                    penalize_matches.append(keyword)
+            
+            net_score = boost_score - penalize_score
+            
+            result['disease_scores'][disease] = {
+                'boost_score': boost_score,
+                'penalize_score': penalize_score,
+                'net_score': net_score,
+                'boost_matches': boost_matches,
+                'penalize_matches': penalize_matches,
+                'included_in_pre_filter': net_score > 0
+            }
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/test-specific-symptoms', methods=['POST'])
+def test_specific_symptoms():
+    """
+    DEBUG endpoint to test specific symptoms with disease rules
+    """
+    try:
+        data = request.get_json()
+        symptoms = data.get('symptoms', 'dhidid, qandho, shuban')
+        
+        result = {
+            'symptoms': symptoms,
+            'disease_rules_available': bool(DISEASE_RULES),
+            'disease_analysis': {},
+            'prediction_changes': {}
+        }
+        
+        if not DISEASE_RULES:
+            result['error'] = 'Disease rules not available'
+            return jsonify(result), 503
+        
+        # Create mock ensemble predictions
+        mock_predictions = {
+            "malaria": 0.3,
+            "migraine": 0.25,
+            "typhoid": 0.2,
+            "common cold": 0.25,
+            "pneumonia": 0.2
+        }
+        
+        # Apply Somali disease rules
+        adjusted_predictions, adjusted_confidences = apply_somali_disease_rules(
+            symptoms,
+            mock_predictions,
+            mock_predictions
+        )
+        
+        # Analyze each disease
+        symptoms_lower = symptoms.lower()
+        
+        for disease, rules in DISEASE_RULES.items():
+            boost_matches = []
+            penalize_matches = []
+            
+            # Check boost keywords
+            for keyword in rules.get('boost_keywords', []):
+                if keyword.lower() in symptoms_lower:
+                    boost_matches.append(keyword)
+            
+            # Check penalize keywords
+            for keyword in rules.get('penalize_keywords', []):
+                if keyword.lower() in symptoms_lower:
+                    penalize_matches.append(keyword)
+            
+            net_score = len(boost_matches) - len(penalize_matches)
+            
+            result['disease_analysis'][disease] = {
+                'boost_matches': boost_matches,
+                'penalize_matches': penalize_matches,
+                'net_score': net_score,
+                'original_confidence': mock_predictions.get(disease, 0),
+                'adjusted_confidence': adjusted_confidences.get(disease, mock_predictions.get(disease, 0))
+            }
+        
+        # Calculate prediction changes
+        original_best = max(mock_predictions, key=mock_predictions.get)
+        new_best = max(adjusted_confidences, key=adjusted_confidences.get)
+        
+        result['prediction_changes'] = {
+            'original_best': original_best,
+            'original_confidence': mock_predictions[original_best],
+            'new_best': new_best,
+            'new_confidence': adjusted_confidences[new_best],
+            'prediction_changed': original_best != new_best
+        }
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/test-enhanced-validation', methods=['POST'])
+def test_enhanced_validation():
+    """
+    DEBUG endpoint to test the new enhanced validation system
+    """
+    try:
+        data = request.get_json()
+        symptoms = data.get('symptoms', 'hello how are you')
+        language = data.get('language', 'en')
+        
+        result = {
+            'symptoms': symptoms,
+            'language': language,
+            'validations': {}
+        }
+        
+        # Test rule-based validation
+        rule_validation = validate_symptoms_rule_based(symptoms, language)
+        result['validations']['rule_based'] = rule_validation
+        
+        # Test OpenAI validation (if available)
+        openai_validation = validate_symptoms_with_openai(symptoms, language)
+        result['validations']['openai'] = openai_validation
+        
+        # Combined validation
+        final_validation = {
+            'is_valid': rule_validation['is_valid'] and openai_validation['is_valid'],
+            'confidence': (rule_validation['confidence'] + openai_validation['confidence']) / 2,
+            'reason': f"Rule-based: {rule_validation['reason']}; OpenAI: {openai_validation['reason']}",
+            'suggestions': rule_validation['suggestions'] if rule_validation['suggestions'] else openai_validation['suggestions']
+        }
+        result['validations']['combined'] = final_validation
+        
+        # Test examples
+        test_examples = [
+            "hello how are you",
+            "I have fever and headache", 
+            "waxaan qabaa qandho iyo madax xanuun",
+            "testing 123",
+            "what time is it",
+            "I feel pain in my chest and difficulty breathing",
+            "Madax xanuun daran (badanaa hal dhinac ka ah), Lalabbo, Mataq, Iftiin xanuun (aragti xasaasi u ah iftiinka), Cod xanuun (dareen xasaasi u ah dhawaaqa), Aragti lumo (blurry vision), Indho ku wareegsan iftiin dhalaalaya (auras), Daal, Wareer, Xasaasiyad culus marka la socdo ama la hadlo"
+        ]
+        
+        result['test_examples'] = {}
+        for example in test_examples:
+            example_rule = validate_symptoms_rule_based(example, language)
+            
+            # Add detailed analysis for Somali examples
+            if language == 'som' or 'xanuun' in example.lower() or 'madax' in example.lower():
+                example_lower = example.lower()
+                analysis = {
+                    'contains_madax': 'madax' in example_lower,
+                    'contains_xanuun': 'xanuun' in example_lower,
+                    'contains_lalabbo': 'lalabbo' in example_lower,
+                    'contains_mataq': 'mataq' in example_lower,
+                    'contains_wareer': 'wareer' in example_lower,
+                    'contains_daal': 'daal' in example_lower,
+                    'contains_aragti': 'aragti' in example_lower,
+                    'contains_cod': 'cod' in example_lower,
+                    'contains_dareen': 'dareen' in example_lower,
+                    'contains_xasaasiyad': 'xasaasiyad' in example_lower,
+                    'text_length': len(example)
+                }
+                result['test_examples'][example] = {
+                    'rule_based': example_rule,
+                    'would_pass': example_rule['is_valid'],
+                    'analysis': analysis
+                }
+            else:
+                result['test_examples'][example] = {
+                    'rule_based': example_rule,
+                    'would_pass': example_rule['is_valid']
+                }
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/history', methods=['GET'])
 def get_history():
     user_id = request.args.get('user_id')
@@ -921,6 +1695,7 @@ def health_check():
         'status': 'healthy',
         'deep_translator_available': translator is not None,
         'openai_available': openai_client is not None,
+        'disease_rules_available': bool(DISEASE_RULES),
         'models_loaded': len(models),
         'model_names': list(models.keys()),
         'model_weights': model_weights,
@@ -990,9 +1765,9 @@ def get_chat_history():
         logger.error(f'❌ Error retrieving chat history: {str(e)}')
         return jsonify({'error': str(e)}), 500
 
-def ensemble_predict(symptoms_vector, symptoms_text):
+def ensemble_predict(symptoms_vector, symptoms_text, somali_symptoms=None, detected_lang=None):
     """
-    Make ensemble prediction using all available models
+    Make ensemble prediction using all available models with optional Somali disease rules
     """
     predictions = {}
     confidences = {}
@@ -1057,6 +1832,63 @@ def ensemble_predict(symptoms_vector, symptoms_text):
     avg_confidence = np.mean(list(confidences.values()))
     
     logger.info(f"🎯 ENSEMBLE RESULT: '{final_prediction}' (confidence: {final_confidence:.4f}, avg: {avg_confidence:.4f})")
+    
+    # Apply Somali disease rules if input is Somali
+    if detected_lang == 'som' and somali_symptoms and DISEASE_RULES:
+        logger.info(f"🔍 DEBUG: === SOMALI DISEASE RULES ACTIVATED ===")
+        logger.info(f"🔍 DEBUG: Detected language: {detected_lang}")
+        logger.info(f"🔍 DEBUG: Somali symptoms: '{somali_symptoms}'")
+        logger.info(f"🔍 DEBUG: Disease rules available: {bool(DISEASE_RULES)}")
+        logger.info(f"🔍 DEBUG: Number of disease rules: {len(DISEASE_RULES)}")
+        logger.info(f"🔍 DEBUG: Applying Somali disease rules for better accuracy")
+        
+        # Create a mapping of predictions to confidences for rule application
+        prediction_confidence_map = {}
+        for prediction in set(predictions.values()):
+            # Calculate average confidence for this prediction across all models
+            pred_confidences = [confidences[model] for model, pred in predictions.items() if pred == prediction]
+            if pred_confidences:
+                prediction_confidence_map[prediction] = np.mean(pred_confidences)
+        
+        logger.info(f"🔍 DEBUG: Prediction confidence map before rules: {prediction_confidence_map}")
+        
+        # Apply Somali disease rules
+        adjusted_predictions, adjusted_confidences = apply_somali_disease_rules(
+            somali_symptoms, 
+            prediction_confidence_map, 
+            prediction_confidence_map
+        )
+        
+        logger.info(f"🔍 DEBUG: Adjusted predictions after rules: {adjusted_predictions}")
+        logger.info(f"🔍 DEBUG: Adjusted confidences after rules: {adjusted_confidences}")
+        
+        # Update final prediction if rules changed it
+        if adjusted_predictions:
+            new_final_prediction = list(adjusted_predictions.keys())[0]
+            new_final_confidence = list(adjusted_predictions.values())[0]
+            
+            logger.info(f"🔍 DEBUG: Original final prediction: '{final_prediction}' ({final_confidence:.3f})")
+            logger.info(f"🔍 DEBUG: New final prediction after rules: '{new_final_prediction}' ({new_final_confidence:.3f})")
+            
+            if new_final_prediction != final_prediction:
+                logger.info(f"🔄 Somali rules CHANGED prediction: '{final_prediction}' -> '{new_final_prediction}'")
+                final_prediction = new_final_prediction
+                final_confidence = new_final_confidence
+            else:
+                logger.info(f"✅ Somali rules CONFIRMED prediction: '{final_prediction}'")
+        else:
+            logger.warning(f"⚠️ DEBUG: No adjusted predictions returned from disease rules")
+    else:
+        logger.info(f"🔍 DEBUG: === SOMALI DISEASE RULES NOT ACTIVATED ===")
+        logger.info(f"🔍 DEBUG: Detected language: {detected_lang}")
+        logger.info(f"🔍 DEBUG: Somali symptoms provided: {somali_symptoms is not None}")
+        logger.info(f"🔍 DEBUG: Disease rules available: {bool(DISEASE_RULES)}")
+        if detected_lang != 'som':
+            logger.info(f"🔍 DEBUG: Skipping Somali rules - language is not Somali")
+        elif not somali_symptoms:
+            logger.info(f"🔍 DEBUG: Skipping Somali rules - no Somali symptoms provided")
+        elif not DISEASE_RULES:
+            logger.info(f"🔍 DEBUG: Skipping Somali rules - disease rules not available")
     
     return {
         'prediction': final_prediction,
