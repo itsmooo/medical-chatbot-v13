@@ -147,9 +147,12 @@ except Exception as e:
 models = {}
 model_weights = {}
 
+# Get the directory where this script is located for robust path handling
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
 # Model 1: Scikit-learn model from models directory
 try:
-    models['sklearn'] = joblib.load('models/disease_predictor.pkl')
+    models['sklearn'] = joblib.load(os.path.join(script_dir, 'models/disease_predictor.pkl'))
     model_weights['sklearn'] = 0.3
     logger.info("✅ Scikit-learn model loaded")
 except Exception as e:
@@ -157,7 +160,7 @@ except Exception as e:
 
 # Model 2: Random Forest model from disease_models directory
 try:
-    models['random_forest'] = joblib.load('disease_models/random_forest_model.pkl')
+    models['random_forest'] = joblib.load(os.path.join(script_dir, 'disease_models/random_forest_model.pkl'))
     model_weights['random_forest'] = 0.3
     logger.info("✅ Random Forest model loaded")
 except Exception as e:
@@ -165,7 +168,7 @@ except Exception as e:
 
 # Model 3: SVM model from disease_models directory
 try:
-    models['svm'] = joblib.load('disease_models/svm_model.pkl')
+    models['svm'] = joblib.load(os.path.join(script_dir, 'disease_models/svm_model.pkl'))
     model_weights['svm'] = 0.2
     logger.info("✅ SVM model loaded")
 except Exception as e:
@@ -174,7 +177,7 @@ except Exception as e:
 # Model 4: Deep Neural Network model (if TensorFlow is available)
 if TENSORFLOW_AVAILABLE:
     try:
-        models['deep_nn'] = keras.models.load_model('disease_models/deep_neural_network_model.h5')
+        models['deep_nn'] = keras.models.load_model(os.path.join(script_dir, 'disease_models/deep_neural_network_model.h5'))
         model_weights['deep_nn'] = 0.2
         logger.info("✅ Deep Neural Network model loaded")
     except Exception as e:
@@ -182,9 +185,17 @@ if TENSORFLOW_AVAILABLE:
 
 # Load preprocessing components
 try:
-    vectorizer = joblib.load('models/tfidf_vectorizer.pkl')
-    label_encoder = joblib.load('models/medical_label_encoder_20250609_203011.pkl')
-    feature_scaler = joblib.load('disease_models/feature_scaler.pkl')
+    
+    vectorizer = joblib.load(os.path.join(script_dir, 'models/tfidf_vectorizer.pkl'))
+    label_encoder = joblib.load(os.path.join(script_dir, 'models/medical_label_encoder_20250609_203011.pkl'))
+    
+    # Try to load feature scaler, but don't fail if it doesn't exist
+    try:
+        feature_scaler = joblib.load(os.path.join(script_dir, 'disease_models/feature_scaler.pkl'))
+    except FileNotFoundError:
+        feature_scaler = None
+        logger.warning("⚠️ Feature scaler not found, deep NN model will be skipped")
+    
     logger.info(f"✅ Preprocessing components loaded. Vectorizer vocabulary size: {len(vectorizer.vocabulary_)}")
 except Exception as e:
     logger.error(f"❌ Failed to load preprocessing components: {str(e)}")
