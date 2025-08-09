@@ -18,6 +18,7 @@ from sklearn.svm import SVC
 from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 from sklearn.preprocessing import LabelEncoder
 import joblib
+import re
 import logging
 import warnings
 import random
@@ -33,30 +34,69 @@ class RealisticDiseasePredictor:
         self.ranking_model = None
         self.vectorizer = None
         self.label_encoder = None
+        # Somali-to-English medical keyword/phrase mapping
+        # Note: phrases appear alongside single words; replacement will prioritize longer keys
         self.somali_keywords = {
-            'dhidid': 'fever',
-            'qandho': 'cough', 
+            # Multi-word phrases first (will be prioritized by length-based replacement)
+            'madax xanuun': 'headache',
+            'madax wareer': 'dizziness',
+            'calool xanuun': 'abdominal pain',
+            'xanuun caloosha': 'abdominal pain',
+            'laab xanuun': 'chest pain',
+            'laab gubasho': 'heartburn',
+            'wadne xanuun': 'chest pain',
+            'wadne garaac': 'palpitations',
+            'neef qabad': 'shortness of breath',
+            'neef qabat': 'shortness of breath',  # common spelling variant
+            'neef la': 'shortness of breath',
+            'qufac xab': 'cough with phlegm',
+            'qufac qalalan': 'dry cough',
+            'kaadi badan': 'frequent urination',
+            'kaadi gubasho': 'burning urination',
+            'kaadi dhiig': 'blood in urine',
+            'cunaha xanuun': 'sore throat',
+            'hunguri xanuun': 'sore throat',
+            'san cufan': 'congestion',
+            'sanka cufan': 'congestion',
+            'san duuf': 'runny nose',
+            'sanka duuf': 'runny nose',
+            'qandho kulul': 'high fever',
+            'qandho qabow': 'chills',
+            'murqo xanuun': 'muscle pain',
+            'lafaha xanuun': 'joint pain',
+            # Single-word terms
+            'qandho': 'fever',
+            'dhidid': 'sweating',
             'shuban': 'diarrhea',
-            'madaxa': 'headache',
-            'caloolka': 'stomach',
-            'jirka': 'body',
-            'qalli': 'vomiting',
-            'hargab': 'thirst',
-            'sambab': 'sneezing',
-            'ilka': 'teeth',
-            'indhaha': 'eyes',
-            'dhegaha': 'ears',
-            'afka': 'mouth',
+            'qufac': 'cough',
+            'lalabo': 'nausea',
+            'matag': 'vomiting',
+            'finan': 'rash',
+            'cuncun': 'itching',
+            'daal': 'fatigue',
+            'daalan': 'fatigue',
+            'oon': 'thirst',
+            'harraad': 'thirst',
+            'indho guduud': 'red eyes',
+            'indho': 'eyes',
+            'ilko xanuun': 'tooth pain',
+            'ilk xanuun': 'tooth pain',
+            'ilko': 'teeth',
             'sanka': 'nose',
-            'gacmaha': 'hands',
+            'san': 'nose',
+            'cunaha': 'throat',
+            'afka': 'mouth',
+            'dhegaha': 'ears',
+            'dhego': 'ears',
+            'jirka': 'body',
             'lugaha': 'legs',
-            'wadnaha': 'heart',
-            'masaarada': 'lungs',
+            'gacmaha': 'hands',
             'beerka': 'liver',
-            'daalan': 'tired',
+            'sambab': 'lungs',
+            'wadnaha': 'heart',
             'neefsasho': 'breathing',
-            'qandho': 'cough',
-            'shuban': 'diarrhea'
+            'sonkorow': 'diabetes',
+            'cadaadis dhiig': 'hypertension'
         }
         
     def load_and_preprocess_data(self, file_path):
@@ -257,14 +297,15 @@ class RealisticDiseasePredictor:
         return pd.Series(augmented_symptoms), pd.Series(augmented_diseases)
     
     def translate_somali_keywords(self, text):
-        """Translate Somali medical keywords to English"""
-        text_lower = text.lower()
-        translated_text = text
-        
-        for somali_word, english_word in self.somali_keywords.items():
-            if somali_word in text_lower:
-                translated_text = translated_text.replace(somali_word, english_word)
-        
+        """Translate Somali medical keywords/phrases to English with word-boundary matching"""
+        if not text:
+            return text
+        translated_text = text.lower()
+        # Sort keys by length to replace longer phrases first
+        for somali_term in sorted(self.somali_keywords.keys(), key=len, reverse=True):
+            english_term = self.somali_keywords[somali_term]
+            pattern = r"\b" + re.escape(somali_term.lower()) + r"\b"
+            translated_text = re.sub(pattern, english_term, translated_text)
         return translated_text
     
     def create_bilingual_features(self, symptoms):
@@ -529,7 +570,7 @@ def main():
             logger.info(f"  {rank['rank']}. {rank['disease']} (confidence: {rank['confidence']:.4f})")
         
         # Test Somali symptoms
-        somali_symptoms = "dhidid qandho madaxa"
+        somali_symptoms = "qandho qufac madax xanuun dhidid neef qabad"
         somali_prediction, somali_confidence = predictor.predict_single_disease(somali_symptoms)
         logger.info(f"Somali prediction: {somali_prediction} (confidence: {somali_confidence:.4f})")
         

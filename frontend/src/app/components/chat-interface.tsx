@@ -26,13 +26,37 @@ interface Disease {
 
 interface ApiResponse {
   disease: string;
+  disease_english?: string;  // English prediction from model
+  disease_somali?: string;   // Somali translation
   confidence: number;
   precautions: string[];
   lang: string;
+  symptoms_original?: string;
+  symptoms_english?: string;
+  symptoms_somali?: string;
+  ensemble_info?: {
+    model_count: number;
+    individual_predictions: Record<string, string>;
+    individual_confidences: Record<string, number>;
+    avg_confidence: number;
+    model_details?: Array<{
+      key: string;
+      name: string; // Human-friendly model name from backend
+      prediction: string;
+      confidence: number;
+      weight: number;
+      effective_weight: number;
+    }>;
+  };
   debug_info?: {
     detected_language: string;
     original_disease: string;
     precautions_count: number;
+    translation_info?: {
+      english_prediction: string;
+      somali_translation: string;
+      translation_method: string;
+    };
   };
   prediction_id?: string | null;
   translated_text?: string[];
@@ -88,17 +112,36 @@ const ChatInterface = () => {
     let response = '';
     const confidencePercent = Math.round(data.confidence * 100);
 
-    // Disease with confidence
-    response = `Based on your symptoms, you might be experiencing **${data.disease}** (${confidencePercent}% confidence).\n\n`;
+    // Disease with confidence - use the appropriate language version
+    const diseaseName = lang === 'so' ? (data.disease_somali || data.disease) : (data.disease_english || data.disease);
+    // Show both English and Somali symptom text for clarity
+    const englishText = data.symptoms_english || data.symptoms_original || '';
+    const somaliText = data.symptoms_somali || data.symptoms_original || '';
+
+    response = `**Symptoms (English):** ${englishText}\n`;
+    response += `**Calaamadaha (Somali):** ${somaliText}\n\n`;
+    response += `Based on your symptoms, you might be experiencing **${diseaseName}** (${confidencePercent}% confidence).\n\n`;
 
     // Add precautions based on selected language
-    const useSomali = lang === 'so' && data.translated_text && data.translated_text.length > 0;
-    const precautionsList = useSomali ? data.translated_text : data.precautions;
+    // The backend now sends the correct language precautions directly
+    const precautionsList = data.precautions;
+    const isSomali = lang === 'so';
     
     if (precautionsList && precautionsList.length > 0) {
-      response += `**${useSomali ? 'Taxaddarrada:' : 'Precautions:'}**\n`;
+      response += `**${isSomali ? 'Taxaddarrada:' : 'Precautions:'}**\n`;
       precautionsList.forEach((prec) => {
         response += `• ${prec}\n`;
+      });
+      response += '\n';
+    }
+
+    // Show model names used (human-friendly from backend)
+    const details = data.ensemble_info?.model_details || [];
+    if (details.length > 0) {
+      response += `**${isSomali ? 'Moodooyinka la adeegsaday:' : 'Models used:'}**\n`;
+      details.forEach((d) => {
+        const confPct = Math.round((d.confidence || 0) * 100);
+        response += `• ${d.name} — ${confPct}%\n`;
       });
       response += '\n';
     }
@@ -151,12 +194,18 @@ const ChatInterface = () => {
 
     try {
       console.log('Sending request to backend...');
+      console.log('Request data:', {
+        symptoms: inputValue,
+        user_id: userId,
+        lang: language
+      });
 
       const response = await axios.post<ApiResponse>(
         'http://localhost:5000/predict',
         {
           symptoms: inputValue,
-          user_id: userId
+          user_id: userId,
+          lang: language  // Send the selected language
         },
         {
           // timeout: 30000, // 30 second timeout
@@ -227,7 +276,13 @@ const ChatInterface = () => {
           errorMessage =
             'The prediction service encountered an error. Please try again with different symptoms.';
         } else if (error.response?.status === 400) {
-          errorMessage = 'Please provide valid symptom information.';
+          // Try to get the specific error message from the backend
+          const errorData = error.response?.data;
+          if (errorData && errorData.message) {
+            errorMessage = errorData.message;
+          } else {
+            errorMessage = 'Please provide valid symptom information.';
+          }
         }
       }
 

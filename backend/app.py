@@ -6,6 +6,7 @@ from pymongo import MongoClient
 from datetime import datetime
 import logging
 from dotenv import load_dotenv
+import pickle
 import time
 import numpy as np
 from collections import Counter
@@ -30,6 +31,7 @@ except ImportError:
     print("⚠️ TensorFlow not available - deep neural network model will be skipped")
 
 from deep_translator import GoogleTranslator
+import re
 
 
 # Configure logging
@@ -146,14 +148,34 @@ except Exception as e:
 # Load ALL AVAILABLE MODELS for Ensemble Prediction
 models = {}
 model_weights = {}
+model_display_names = {}
 
 # Get the directory where this script is located for robust path handling
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
+# Prefer newly trained realistic models
+try:
+    models['realistic_single'] = joblib.load(os.path.join(script_dir, 'disease_models/realistic_single_model.pkl'))
+    model_weights['realistic_single'] = 0.45
+    model_display_names['realistic_single'] = f"Realistic Single ({models['realistic_single'].__class__.__name__})"
+    logger.info("✅ Realistic single model loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load realistic single model: {str(e)}")
+
+try:
+    models['realistic_ranking'] = joblib.load(os.path.join(script_dir, 'disease_models/realistic_ranking_model.pkl'))
+    model_weights['realistic_ranking'] = 0.25
+    model_display_names['realistic_ranking'] = f"Realistic Ranking ({models['realistic_ranking'].__class__.__name__})"
+    logger.info("✅ Realistic ranking model loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load realistic ranking model: {str(e)}")
+
+# Legacy/older models (kept for ensemble diversity if present)
 # Model 1: Scikit-learn model from models directory
 try:
     models['sklearn'] = joblib.load(os.path.join(script_dir, 'models/disease_predictor.pkl'))
-    model_weights['sklearn'] = 0.3
+    model_weights['sklearn'] = model_weights.get('sklearn', 0.15)
+    model_display_names['sklearn'] = f"Classic ({models['sklearn'].__class__.__name__})"
     logger.info("✅ Scikit-learn model loaded")
 except Exception as e:
     logger.warning(f"⚠️ Failed to load scikit-learn model: {str(e)}")
@@ -161,7 +183,8 @@ except Exception as e:
 # Model 2: Random Forest model from disease_models directory
 try:
     models['random_forest'] = joblib.load(os.path.join(script_dir, 'disease_models/random_forest_model.pkl'))
-    model_weights['random_forest'] = 0.3
+    model_weights['random_forest'] = model_weights.get('random_forest', 0.15)
+    model_display_names['random_forest'] = f"Legacy RF ({models['random_forest'].__class__.__name__})"
     logger.info("✅ Random Forest model loaded")
 except Exception as e:
     logger.warning(f"⚠️ Failed to load Random Forest model: {str(e)}")
@@ -169,7 +192,8 @@ except Exception as e:
 # Model 3: SVM model from disease_models directory
 try:
     models['svm'] = joblib.load(os.path.join(script_dir, 'disease_models/svm_model.pkl'))
-    model_weights['svm'] = 0.2
+    model_weights['svm'] = model_weights.get('svm', 0.1)
+    model_display_names['svm'] = f"Legacy SVM ({models['svm'].__class__.__name__})"
     logger.info("✅ SVM model loaded")
 except Exception as e:
     logger.warning(f"⚠️ Failed to load SVM model: {str(e)}")
@@ -178,16 +202,34 @@ except Exception as e:
 if TENSORFLOW_AVAILABLE:
     try:
         models['deep_nn'] = keras.models.load_model(os.path.join(script_dir, 'disease_models/deep_neural_network_model.h5'))
-        model_weights['deep_nn'] = 0.2
+        model_weights['deep_nn'] = model_weights.get('deep_nn', 0.05)
+        model_display_names['deep_nn'] = "Deep Neural Network"
         logger.info("✅ Deep Neural Network model loaded")
     except Exception as e:
         logger.warning(f"⚠️ Failed to load Deep Neural Network model: {str(e)}")
 
-# Load preprocessing components
+# Load preprocessing components (prefer realistic components)
 try:
+    # Vectorizer
+    try:
+        vectorizer = joblib.load(os.path.join(script_dir, 'disease_models/realistic_vectorizer.pkl'))
+        logger.info("✅ Loaded realistic vectorizer")
+    except Exception:
+        vectorizer = joblib.load(os.path.join(script_dir, 'models/tfidf_vectorizer.pkl'))
+        logger.info("✅ Loaded legacy TF-IDF vectorizer")
     
-    vectorizer = joblib.load(os.path.join(script_dir, 'models/tfidf_vectorizer.pkl'))
-    label_encoder = joblib.load(os.path.join(script_dir, 'models/medical_label_encoder_20250609_203011.pkl'))
+    # Label encoder
+    try:
+        label_encoder = joblib.load(os.path.join(script_dir, 'disease_models/realistic_label_encoder.pkl'))
+        logger.info("✅ Loaded realistic label encoder")
+    except Exception:
+        try:
+            label_encoder = joblib.load(os.path.join(script_dir, 'disease_models/label_encoder.pkl'))
+            logger.info("✅ Loaded label encoder from disease_models directory")
+        except FileNotFoundError:
+            # Fallback to models directory
+            label_encoder = joblib.load(os.path.join(script_dir, 'models/medical_label_encoder_20250609_203011.pkl'))
+            logger.info("✅ Loaded label encoder from models directory")
     
     # Try to load feature scaler, but don't fail if it doesn't exist
     try:
@@ -207,7 +249,186 @@ if not models:
 
 logger.info(f"✅ Ensemble setup complete. Loaded {len(models)} models:")
 for model_name, weight in model_weights.items():
-    logger.info(f"   - {model_name}: weight {weight}")
+    display_name = model_display_names.get(model_name, model_name)
+    logger.info(f"   - {model_name} ({display_name}): weight {weight}")
+
+# --- Utility: normalize disease label to readable string ---
+def normalize_disease_name(disease_label):
+    try:
+        # Already a string
+        if isinstance(disease_label, str):
+            return disease_label
+        # Numeric label: decode with label encoder if possible
+        if isinstance(disease_label, (np.integer, int)):
+            try:
+                return label_encoder.inverse_transform([int(disease_label)])[0]
+            except Exception:
+                return str(disease_label)
+        # Fallback to string
+        return str(disease_label)
+    except Exception:
+        return str(disease_label)
+
+# === Load Enhanced Feature-Based Best Model (from train_enhanced_models.py) ===
+enhanced_nn_model = None
+enhanced_feature_scaler = None
+enhanced_label_encoder = None
+enhanced_feature_columns = None
+
+try:
+    # Load Keras enhanced model
+    enhanced_model_path = os.path.join(script_dir, 'disease_models/enhanced_disease_model.h5')
+    if os.path.exists(enhanced_model_path) and TENSORFLOW_AVAILABLE:
+        enhanced_nn_model = keras.models.load_model(enhanced_model_path)
+        logger.info('✅ Enhanced NN model loaded')
+    else:
+        logger.info('ℹ️ Enhanced NN model not available or TensorFlow missing')
+    
+    # Load scaler/label encoder/feature columns saved with pickle
+    scaler_path = os.path.join(script_dir, 'disease_models/scaler.pkl')
+    if os.path.exists(scaler_path):
+        with open(scaler_path, 'rb') as f:
+            enhanced_feature_scaler = pickle.load(f)
+        logger.info('✅ Enhanced feature scaler loaded')
+    
+    le_path = os.path.join(script_dir, 'disease_models/label_encoder.pkl')
+    if os.path.exists(le_path):
+        with open(le_path, 'rb') as f:
+            enhanced_label_encoder = pickle.load(f)
+        logger.info('✅ Enhanced label encoder loaded')
+    
+    feat_cols_path = os.path.join(script_dir, 'disease_models/feature_columns.pkl')
+    if os.path.exists(feat_cols_path):
+        with open(feat_cols_path, 'rb') as f:
+            enhanced_feature_columns = pickle.load(f)
+        logger.info(f"✅ Enhanced feature columns loaded ({len(enhanced_feature_columns)})")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load enhanced artifacts: {e}")
+
+# Helpers to build enhanced features from raw English symptoms
+def extract_symptoms_from_text_app(symptoms_text: str):
+    separators = [';', ',', '—', '-', '•', '\n', '.', '|']
+    cleaned_text = symptoms_text
+    for sep in separators:
+        cleaned_text = cleaned_text.replace(sep, ';')
+    items = []
+    for token in cleaned_text.split(';'):
+        token = token.strip()
+        if token and len(token) > 2:
+            token = re.sub(r'^(signs of|symptoms of|including|such as|like)\s*', '', token, flags=re.IGNORECASE)
+            token = re.sub(r'\s*(in women|in men|especially|particularly).*$','', token, flags=re.IGNORECASE)
+            token = token.strip()
+            if token:
+                items.append(token)
+    return items
+
+def standardize_symptom_token(token_lower: str) -> str:
+    fever_terms = ['fever', 'high temperature', 'pyrexia', 'elevated temperature', 'feverish']
+    headache_terms = ['headache', 'head pain', 'cephalgia', 'migraine', 'head ache']
+    nausea_terms = ['nausea', 'feeling sick', 'queasiness', 'sick feeling']
+    fatigue_terms = ['fatigue', 'tiredness', 'weakness', 'exhaustion', 'tired', 'weak']
+    cough_terms = ['cough', 'coughing', 'persistent cough', 'dry cough', 'wet cough']
+    if any(term in token_lower for term in fever_terms):
+        return 'Fever'
+    if any(term in token_lower for term in headache_terms):
+        return 'Headache'
+    if any(term in token_lower for term in nausea_terms):
+        return 'Nausea'
+    if any(term in token_lower for term in fatigue_terms):
+        return 'Fatigue'
+    if any(term in token_lower for term in cough_terms):
+        return 'Cough'
+    if 'abdominal' in token_lower and 'pain' in token_lower:
+        return 'Abdominal Pain'
+    if 'chest' in token_lower and 'pain' in token_lower:
+        return 'Chest Pain'
+    if 'muscle' in token_lower and ('pain' in token_lower or 'ache' in token_lower):
+        return 'Muscle Pain'
+    if 'joint' in token_lower and ('pain' in token_lower or 'ache' in token_lower):
+        return 'Joint Pain'
+    if 'burning' in token_lower:
+        return 'Burning Sensation'
+    if 'frequent' in token_lower and 'urin' in token_lower:
+        return 'Frequent Urination'
+    if 'vomit' in token_lower:
+        return 'Vomiting'
+    if 'dizz' in token_lower:
+        return 'Dizziness'
+    if 'rash' in token_lower or 'skin' in token_lower:
+        return 'Skin Rash'
+    if 'chill' in token_lower:
+        return 'Chills'
+    if 'sweat' in token_lower:
+        return 'Night Sweats'
+    if 'thirst' in token_lower:
+        return 'Excessive Thirst'
+    if 'weight' in token_lower and 'loss' in token_lower:
+        return 'Weight Loss'
+    if 'appetite' in token_lower:
+        return 'Loss of Appetite'
+    if 'shortness of breath' in token_lower or ('breath' in token_lower and ('short' in token_lower or 'difficult' in token_lower)):
+        return 'Shortness of Breath'
+    if 'vision' in token_lower and 'blur' in token_lower:
+        return 'Blurred Vision'
+    if 'constipat' in token_lower:
+        return 'Constipation'
+    # Default: title case cleaned token
+    return token_lower.title().strip()
+
+ENH_COMBOS = [
+    ('Fever', 'Chills', 'Fever_Chills'),
+    ('Fever', 'Abdominal Pain', 'Fever_AbPain'),
+    ('Frequent Urination', 'Burning Sensation', 'UTI_Symptoms'),
+    ('Cough', 'Fever', 'Respiratory_Infection'),
+    ('Headache', 'Fever', 'Systemic_Infection'),
+    ('Fatigue', 'Fever', 'Acute_Illness'),
+    ('Cough', 'Chest Pain', 'Lower_Respiratory'),
+    ('Burning Sensation', 'Fever', 'UTI_Fever'),
+    ('Headache', 'Nausea', 'Neurological'),
+    ('Fever', 'Muscle Pain', 'Viral_Syndrome'),
+    ('Abdominal Pain', 'Nausea', 'GI_Distress'),
+    ('Fatigue', 'Dizziness', 'Systemic_Weakness'),
+    ('Excessive Thirst', 'Frequent Urination', 'Diabetes_Classic'),
+    ('Chest Pain', 'Shortness of Breath', 'Cardiopulmonary'),
+    ('Headache', 'Dizziness', 'Hypertensive_Crisis')
+]
+
+def build_enhanced_feature_vector(english_symptoms_text: str) -> np.ndarray:
+    # Standardize tokens
+    tokens = extract_symptoms_from_text_app(english_symptoms_text)
+    std = set(standardize_symptom_token(t.lower()) for t in tokens)
+    feature_values = {}
+    # Base symptom features
+    for col in enhanced_feature_columns:
+        if col.startswith('Symptom_'):
+            sym_name = col.replace('Symptom_', '')
+            feature_values[col] = 1 if sym_name in std else 0
+    # Combos
+    for a, b, combo in ENH_COMBOS:
+        col_name = f'Combo_{combo}'
+        if col_name in enhanced_feature_columns:
+            feature_values[col_name] = int((f'Symptom_{a}' in feature_values and feature_values[f'Symptom_{a}'] == 1) and (f'Symptom_{b}' in feature_values and feature_values[f'Symptom_{b}'] == 1))
+    # Scores
+    def get(col):
+        return feature_values.get(col, 0)
+    fever_symptoms = ['Symptom_Fever', 'Symptom_Chills', 'Symptom_Night Sweats']
+    respiratory_symptoms = ['Symptom_Cough', 'Symptom_Chest Pain', 'Symptom_Shortness of Breath']
+    gi_symptoms = ['Symptom_Abdominal Pain', 'Symptom_Nausea', 'Symptom_Vomiting', 'Symptom_Loss of Appetite']
+    urinary_symptoms = ['Symptom_Frequent Urination', 'Symptom_Burning Sensation']
+    neuro_symptoms = ['Symptom_Headache', 'Symptom_Dizziness', 'Symptom_Blurred Vision']
+    constitutional_symptoms = ['Symptom_Fatigue', 'Symptom_Weight Loss', 'Symptom_Muscle Pain']
+    feature_values['Fever_Score'] = sum(get(c) for c in fever_symptoms)
+    feature_values['Respiratory_Score'] = sum(get(c) for c in respiratory_symptoms)
+    feature_values['GI_Score'] = sum(get(c) for c in gi_symptoms)
+    feature_values['Urinary_Score'] = sum(get(c) for c in urinary_symptoms)
+    feature_values['Neuro_Score'] = sum(get(c) for c in neuro_symptoms)
+    feature_values['Constitutional_Score'] = sum(get(c) for c in constitutional_symptoms)
+    # Total symptoms
+    symptom_cols = [c for c in enhanced_feature_columns if c.startswith('Symptom_')]
+    feature_values['Total_Symptoms'] = sum(get(c) for c in symptom_cols)
+    # Build vector in correct order
+    vector = [feature_values.get(col, 0) for col in enhanced_feature_columns]
+    return np.array(vector, dtype=float)
 
 # Disease-specific precautions (English)
 DISEASE_PRECAUTIONS = {
@@ -403,7 +624,7 @@ def get_somali_precautions_for_disease(disease_name):
             'flu': 'Qawowga caadiga ah'
         }
         
-        disease_lower = disease_name.lower().strip()
+        disease_lower = normalize_disease_name(disease_name).lower().strip()
         logger.info(f"🔍 Looking for Somali precautions for: {disease_name}")
         
         # Direct match
@@ -438,12 +659,102 @@ def get_somali_precautions_for_disease(disease_name):
 
 def get_precautions_for_disease(disease_name):
     """
-    Get precautions for a specific disease - now returns Somali precautions directly
+    Get English precautions for a specific disease
     """
-    logger.info(f"🔍 Getting Somali precautions for: {disease_name}")
+    logger.info(f"🔍 Getting English precautions for: {disease_name}")
     
-    # Always return Somali precautions
-    return get_somali_precautions_for_disease(disease_name)
+    # Map disease names to English precautions
+    disease_precautions_map = {
+        'pneumonia': [
+            "Take prescribed antibiotics or antiviral medications as directed by your doctor",
+            "Get plenty of rest and avoid strenuous activities",
+            "Drink plenty of fluids to stay hydrated and help loosen mucus",
+            "Use a humidifier or breathe steam from a hot shower to ease breathing",
+            "Avoid smoking and exposure to secondhand smoke",
+            "Follow up with your healthcare provider as recommended"
+        ],
+        'malaria': [
+            "Take antimalarial medications exactly as prescribed by your doctor",
+            "Use mosquito nets while sleeping, especially during night hours",
+            "Apply insect repellent containing DEET to exposed skin",
+            "Wear long-sleeved clothing and long pants during evening and night",
+            "Seek immediate medical attention if symptoms worsen",
+            "Complete the full course of treatment even if you feel better"
+        ],
+        'diabetes': [
+            "Monitor your blood sugar levels regularly as advised by your healthcare provider",
+            "Follow a balanced diet and control carbohydrate intake",
+            "Take prescribed medications (insulin or oral drugs) consistently",
+            "Engage in regular physical activity as recommended by your doctor",
+            "Check your feet daily for cuts, sores, or signs of infection",
+            "Schedule regular check-ups for eye, kidney, and foot examinations"
+        ],
+        'common cold': [
+            "Get adequate rest to help your body recover",
+            "Stay well hydrated by drinking water, herbal teas, or warm broths",
+            "Use a humidifier or inhale steam to relieve congestion",
+            "Gargle with warm salt water to soothe a sore throat",
+            "Wash hands frequently to prevent spreading the infection",
+            "Avoid close contact with others to prevent transmission"
+        ],
+        'migraine': [
+            "Take prescribed migraine medications at the first sign of symptoms",
+            "Rest in a quiet, dark, and cool room during an attack",
+            "Apply a cold compress to your forehead or temples",
+            "Identify and avoid known migraine triggers",
+            "Maintain regular sleep and eating schedules",
+            "Stay hydrated and manage stress levels"
+        ],
+        'typhoid': [
+            "Take prescribed antibiotics exactly as directed by your doctor",
+            "Get plenty of rest and avoid physical exertion",
+            "Stay well hydrated with clean, safe water",
+            "Follow a bland diet as recommended by your healthcare provider",
+            "Practice good hand hygiene to prevent spreading infection",
+            "Complete the full course of treatment even if symptoms improve"
+        ],
+        'urinary tract infection': [
+            "Take prescribed antibiotics exactly as directed",
+            "Drink plenty of water to help flush out bacteria",
+            "Avoid caffeine, alcohol, and spicy foods",
+            "Use heating pads to relieve discomfort",
+            "Practice good hygiene and urinate frequently",
+            "Follow up with your healthcare provider as recommended"
+        ],
+        'fungal infection': [
+            "Keep the affected area clean and dry",
+            "Apply prescribed antifungal medications as directed",
+            "Wear loose, breathable clothing",
+            "Avoid sharing personal items like towels or clothing",
+            "Change socks and underwear frequently",
+            "Follow up with your healthcare provider if symptoms persist"
+        ]
+    }
+    
+    # Convert disease name to lowercase for matching
+    disease_lower = normalize_disease_name(disease_name).lower().strip()
+    
+    # Try exact match first
+    if disease_lower in disease_precautions_map:
+        logger.info(f"✅ Found exact match for English precautions: {disease_name}")
+        return disease_precautions_map[disease_lower]
+    
+    # Try partial matching
+    for key, precautions in disease_precautions_map.items():
+        if key in disease_lower or disease_lower in key:
+            logger.info(f"✅ Found partial match for English precautions: {disease_name} -> {key}")
+            return precautions
+    
+    # Default English precautions if no match found
+    logger.info(f"⚠️ No specific English precautions found for: {disease_name}, using default")
+    return [
+        "Consult a healthcare professional immediately for proper diagnosis and treatment",
+        "Follow your doctor's prescribed treatment plan carefully",
+        "Monitor your symptoms and seek medical attention if they worsen",
+        "Take prescribed medications exactly as directed",
+        "Get adequate rest and maintain proper nutrition",
+        "Stay hydrated and avoid self-medication"
+    ]
 
 def create_model_vector(english_symptoms):
     """
@@ -457,6 +768,22 @@ def create_model_vector(english_symptoms):
     except Exception as e:
         logger.error(f"❌ Error creating vector: {str(e)}")
         return vectorizer.transform(["medical symptoms"])
+
+def create_enhanced_feature_vector_for_prediction(english_symptoms):
+    """Build enhanced feature vector for the enhanced NN path if artifacts exist"""
+    try:
+        if enhanced_feature_columns is None:
+            raise ValueError('Enhanced feature columns not loaded')
+        fv = build_enhanced_feature_vector(english_symptoms)
+        # Scale to match training
+        if enhanced_feature_scaler is not None:
+            fv_scaled = enhanced_feature_scaler.transform([fv])[0]
+        else:
+            fv_scaled = fv
+        return np.array([fv_scaled])
+    except Exception as e:
+        logger.warning(f"⚠️ Falling back to TF-IDF: {e}")
+        return None
 
 def translate_precautions(precautions, target_lang="so"):
     if target_lang == "en":
@@ -529,6 +856,33 @@ def validate_symptoms_rule_based(symptoms_text, language='en'):
                 'joint', 'muscle', 'breathing', 'breath', 'swelling', 'rash',
                 'itch', 'burn', 'ache', 'sore', 'hurt', 'sick', 'ill', 'blood',
                 'urine', 'bowel', 'appetite', 'sleep', 'tired', 'chills',
+                # Additional common symptoms
+                'feeling', 'experiencing', 'having', 'got', 'got a', 'have a',
+                'suffering', 'suffering from', 'symptoms', 'symptom',
+                'difficulty', 'trouble', 'problem', 'issues', 'condition',
+                'discomfort', 'uncomfortable', 'sensitive', 'sensitivity',
+                'pressure', 'tightness', 'heaviness', 'lightheaded', 'dizzy',
+                'nauseous', 'vomiting', 'throwing up', 'upset stomach',
+                'stomach ache', 'belly pain', 'abdominal', 'cramps',
+                'runny nose', 'stuffy nose', 'congested', 'congestion',
+                'sore throat', 'scratchy throat', 'hoarse', 'voice',
+                'dry cough', 'wet cough', 'productive cough',
+                'body aches', 'muscle aches', 'joint pain', 'stiffness',
+                'hot', 'cold', 'sweating', 'sweats', 'night sweats',
+                'loss of appetite', 'no appetite', 'hungry', 'thirsty',
+                'dehydrated', 'dehydration', 'dry mouth', 'dry eyes',
+                'blurred vision', 'blurry', 'vision', 'seeing',
+                'hearing', 'ears', 'ringing', 'tinnitus',
+                'numbness', 'tingling', 'pins and needles',
+                'shortness of breath', 'breathing', 'wheezing',
+                'chest tightness', 'chest pressure', 'heartburn',
+                'acid reflux', 'indigestion', 'gas', 'bloating',
+                'constipation', 'diarrhea', 'loose stools',
+                'frequent urination', 'burning', 'urination',
+                'rash', 'hives', 'itching', 'itchy', 'redness',
+                'swelling', 'edema', 'fluid retention',
+                'bruising', 'bleeding', 'cuts', 'wounds',
+                'infection', 'infected', 'pus', 'drainage',
                 # Disease-specific symptoms
                 'diabetes', 'sugar', 'insulin', 'malaria', 'mosquito', 'bite',
                 'pneumonia', 'lung', 'infection', 'bacteria', 'virus',
@@ -671,6 +1025,7 @@ def validate_symptoms_rule_based(symptoms_text, language='en'):
 def validate_symptoms_with_openai(symptoms_text, language='en'):
     """
     Enhanced OpenAI validation specifically for the 8 trained diseases
+    
     """
     if not openai_client:
         logger.warning("⚠️ OpenAI not available, using rule-based validation only")
@@ -1015,6 +1370,8 @@ def predict():
         logger.info(f"🚀 STARTING PREDICTION PIPELINE")
         logger.info(f"📝 Original symptoms: '{symptoms}'")
         logger.info(f"🌐 Language param: '{lang_param}'")
+        logger.info(f"👤 User ID: '{user_id}'")
+        logger.info(f"📊 Request data: {data}")
 
         # Validation
         if not symptoms or len(symptoms) < 5:
@@ -1029,14 +1386,18 @@ def predict():
 
         # STEP 2: ENHANCED SYMPTOM VALIDATION
         logger.info(f"🔍 STEP 2: Enhanced symptom validation")
+        logger.info(f"🔍 Detected language: {detected_lang}")
+        logger.info(f"🔍 Symptoms to validate: '{symptoms}'")
         
         # First try rule-based validation (always works)
         rule_validation = validate_symptoms_rule_based(symptoms, detected_lang)
         logger.info(f"📋 Rule-based validation: {rule_validation['is_valid']} (confidence: {rule_validation['confidence']:.2f})")
+        logger.info(f"📋 Rule-based reason: {rule_validation['reason']}")
         
         # Then try OpenAI validation (if available)
         openai_validation = validate_symptoms_with_openai(symptoms, detected_lang)
         logger.info(f"🤖 OpenAI validation: {openai_validation['is_valid']} (confidence: {openai_validation['confidence']:.2f})")
+        logger.info(f"🤖 OpenAI reason: {openai_validation['reason']}")
         
         # Combine both validations - be more lenient for Somali
         if detected_lang == 'som':
@@ -1082,51 +1443,102 @@ def predict():
                         'openai_validation': openai_validation
                     }), 400
             else:
-                suggestions_text = ""
-                if final_validation['suggestions']:
-                    suggestions_text = f" Please provide valid medical symptoms such as: {', '.join(final_validation['suggestions'][:3])}"
+                # Special fallback for English - check if it contains obvious medical terms
+                symptoms_lower = symptoms.lower()
+                obvious_medical_terms = ['fever', 'headache', 'pain', 'cough', 'nausea', 'dizziness', 'fatigue', 'weakness', 'sore', 'ache', 'hurt', 'sick', 'ill']
+                medical_term_count = sum(1 for term in obvious_medical_terms if term in symptoms_lower)
                 
-                return jsonify({
-                    'message': f'The provided text does not appear to contain valid medical symptoms. {final_validation["reason"]}{suggestions_text}',
-                    'type': 'invalid_symptoms',
-                    'validation_result': final_validation,
-                    'rule_validation': rule_validation,
-                    'openai_validation': openai_validation
-                }), 400
+                logger.info(f"🔍 English fallback check: Found {medical_term_count} obvious medical terms in '{symptoms_lower}'")
+                logger.info(f"🔍 English fallback check: Obvious terms found: {[term for term in obvious_medical_terms if term in symptoms_lower]}")
+                
+                if medical_term_count >= 1:  # If at least 1 obvious medical term found
+                    logger.info(f"🔍 English fallback: Found {medical_term_count} obvious medical terms, bypassing validation")
+                    final_validation['is_valid'] = True
+                    final_validation['confidence'] = 0.8
+                    final_validation['reason'] = f"Fallback: Found {medical_term_count} obvious English medical terms"
+                else:
+                    logger.info(f"🔍 English fallback: No obvious medical terms found, rejecting")
+                    suggestions_text = ""
+                    if final_validation['suggestions']:
+                        suggestions_text = f" Please provide valid medical symptoms such as: {', '.join(final_validation['suggestions'][:3])}"
+                    
+                    return jsonify({
+                        'message': f'The provided text does not appear to contain valid medical symptoms. {final_validation["reason"]}{suggestions_text}',
+                        'type': 'invalid_symptoms',
+                        'validation_result': final_validation,
+                        'rule_validation': rule_validation,
+                        'openai_validation': openai_validation
+                    }), 400
         
         logger.info(f"✅ Enhanced symptom validation passed (combined confidence: {final_validation['confidence']:.2f})")
 
-        # STEP 3: TRANSLATE SYMPTOMS TO ENGLISH
+        # STEP 3: TRANSLATE SYMPTOMS (build both English and Somali views)
         if detected_lang == 'som':
             logger.info(f"🔄 TRANSLATING SYMPTOMS: Somali -> English")
             english_symptoms = translate_text_fixed(symptoms, 'som', 'en')
+            somali_symptoms_text = symptoms
             logger.info(f"✅ TRANSLATED SYMPTOMS: '{english_symptoms[:100]}...'")
         else:
             english_symptoms = symptoms
             logger.info(f"📝 USING ENGLISH SYMPTOMS DIRECTLY")
+            # Also provide Somali rendering for the UI if possible
+            try:
+                somali_symptoms_text = translate_text_fixed(symptoms, 'en', 'som')
+            except Exception:
+                somali_symptoms_text = symptoms
 
         # STEP 4: ENSEMBLE MODEL PREDICTION
         try:
-            symptoms_vector = create_model_vector(english_symptoms)
-            
-            # Use ensemble prediction with all available models and Somali disease rules
-            somali_symptoms_for_rules = symptoms if detected_lang == 'som' else None
-            
-            logger.info(f"🔍 DEBUG: === ENSEMBLE PREDICTION WITH DISEASE RULES ===")
-            logger.info(f"🔍 DEBUG: Detected language: {detected_lang}")
-            logger.info(f"🔍 DEBUG: Original symptoms: '{symptoms}'")
-            logger.info(f"🔍 DEBUG: English symptoms: '{english_symptoms}'")
-            logger.info(f"🔍 DEBUG: Somali symptoms for rules: '{somali_symptoms_for_rules}'")
-            logger.info(f"🔍 DEBUG: Disease rules available: {bool(DISEASE_RULES)}")
-            
-            ensemble_result = ensemble_predict(
-                symptoms_vector, 
-                english_symptoms, 
-                somali_symptoms=somali_symptoms_for_rules,
-                detected_lang=detected_lang
-            )
-            prediction_english = ensemble_result['prediction']
-            confidence = ensemble_result['confidence']
+            # Prefer enhanced NN when all artifacts are available
+            enhanced_vector = create_enhanced_feature_vector_for_prediction(english_symptoms) if enhanced_nn_model is not None else None
+            if enhanced_vector is not None and enhanced_nn_model is not None and enhanced_label_encoder is not None:
+                logger.info(f"🔍 DEBUG: Using enhanced NN path for prediction")
+                nn_probs = enhanced_nn_model.predict(enhanced_vector, verbose=0)[0]
+                nn_index = int(np.argmax(nn_probs))
+                prediction_english = enhanced_label_encoder.inverse_transform([nn_index])[0]
+                confidence = float(nn_probs[nn_index])
+                # Build a minimal ensemble_info for UI
+                ensemble_result = {
+                    'model_count': 1,
+                    'individual_predictions': {'enhanced_nn': prediction_english},
+                    'individual_confidences': {'enhanced_nn': confidence},
+                    'avg_confidence': confidence,
+                    'model_details': [{
+                        'key': 'enhanced_nn',
+                        'name': 'Enhanced Neural Network',
+                        'prediction': prediction_english,
+                        'confidence': confidence,
+                        'weight': 1.0,
+                        'effective_weight': confidence
+                    }]
+                }
+            else:
+                logger.info(f"🔍 DEBUG: Using TF-IDF ensemble path for prediction")
+                symptoms_vector = create_model_vector(english_symptoms)
+                logger.info(f"🔍 DEBUG: Created symptoms vector with shape: {symptoms_vector.shape}")
+                
+                # Use ensemble prediction with all available models and Somali disease rules
+                somali_symptoms_for_rules = symptoms if detected_lang == 'som' else None
+                
+                logger.info(f"🔍 DEBUG: === ENSEMBLE PREDICTION WITH DISEASE RULES ===")
+                logger.info(f"🔍 DEBUG: Detected language: {detected_lang}")
+                logger.info(f"🔍 DEBUG: Original symptoms: '{symptoms}'")
+                logger.info(f"🔍 DEBUG: English symptoms: '{english_symptoms}'")
+                logger.info(f"🔍 DEBUG: Somali symptoms for rules: '{somali_symptoms_for_rules}'")
+                logger.info(f"🔍 DEBUG: Disease rules available: {bool(DISEASE_RULES)}")
+                logger.info(f"🔍 DEBUG: Available models: {list(models.keys())}")
+                logger.info(f"🔍 DEBUG: Vectorizer vocabulary size: {len(vectorizer.vocabulary_)}")
+                logger.info(f"🔍 DEBUG: Label encoder classes: {list(label_encoder.classes_)}")
+                
+                ensemble_result = ensemble_predict(
+                    symptoms_vector, 
+                    english_symptoms, 
+                    somali_symptoms=somali_symptoms_for_rules,
+                    detected_lang=detected_lang
+                )
+            if 'prediction' not in locals() or prediction_english is None:
+                prediction_english = ensemble_result['prediction']
+                confidence = ensemble_result['confidence']
             
             logger.info(f"✅ ENSEMBLE PREDICTION: '{prediction_english}' (confidence: {confidence:.4f})")
             logger.info(f"📊 Used {ensemble_result['model_count']} models for prediction")
@@ -1136,9 +1548,13 @@ def predict():
 
         except Exception as e:
             logger.error(f"❌ Ensemble prediction error: {str(e)}")
+            logger.error(f"❌ Error details: {type(e).__name__}: {str(e)}")
+            import traceback
+            logger.error(f"❌ Full traceback: {traceback.format_exc()}")
             return jsonify({
                 'message': 'Error making prediction with the ensemble models.',
-                'type': 'error'
+                'type': 'error',
+                'error_details': str(e)
             }), 500
 
         # Check confidence threshold - increased for better accuracy
@@ -1150,14 +1566,19 @@ def predict():
                 'suggestions': ['fever', 'headache', 'cough', 'pain', 'nausea'] if detected_lang == 'en' else ['qandho', 'madax xanuun', 'dhidid', 'xanuun', 'shuban']
             }), 200
 
-        # STEP 5: GET SOMALI PRECAUTIONS
-        somali_precautions = get_somali_precautions_for_disease(prediction_english)
-        logger.info(f"✅ GOT SOMALI PRECAUTIONS: {len(somali_precautions)} items")
+        # STEP 5: GET PRECAUTIONS BASED ON SELECTED LANGUAGE
+        if detected_lang == 'som':
+            # Get Somali precautions
+            final_precautions = get_somali_precautions_for_disease(prediction_english)
+            logger.info(f"✅ GOT SOMALI PRECAUTIONS: {len(final_precautions)} items")
+        else:
+            # Get English precautions
+            final_precautions = get_precautions_for_disease(prediction_english)
+            logger.info(f"✅ GOT ENGLISH PRECAUTIONS: {len(final_precautions)} items")
 
         # STEP 6: PREPARE RESPONSE DATA
         # Always keep disease prediction in English
         final_disease_name = prediction_english  # Always in English
-        final_precautions = somali_precautions  # Always in Somali
         final_lang = detected_lang  # Keep track of original input language
 
         # STEP 7: LOG AND RETURN
@@ -1177,27 +1598,39 @@ def predict():
             'message': 'Ensemble prediction completed successfully.',
             'type': 'diagnosis',
             'disease': final_disease_name,  # Always in English
+            'disease_english': prediction_english,  # English prediction from model
+            'disease_somali': prediction_english,  # Keep disease name in English (no translation)
             'confidence': float(confidence),
-            'precautions': final_precautions,  # Always in Somali
+            'precautions': final_precautions,  # In the selected language (English or Somali)
             'lang': final_lang,  # Original input language
             'prediction_id': prediction_log_id,
+            # Echo symptoms in both languages for the UI
+            'symptoms_original': symptoms,
+            'symptoms_english': english_symptoms,
+            'symptoms_somali': somali_symptoms_text if detected_lang != 'som' else symptoms,
             'ensemble_info': {
                 'model_count': ensemble_result['model_count'],
                 'individual_predictions': ensemble_result['individual_predictions'],
                 'individual_confidences': ensemble_result['individual_confidences'],
-                'avg_confidence': float(ensemble_result['avg_confidence'])
+                'avg_confidence': float(ensemble_result['avg_confidence']),
+                'model_details': ensemble_result.get('model_details', [])
             },
             'debug_info': {
                 'detected_language': detected_lang,
                 'original_disease': prediction_english,
-                'precautions_count': len(final_precautions)
+                'precautions_count': len(final_precautions),
+                'translation_info': {
+                    'english_prediction': prediction_english,
+                    'somali_translation': 'N/A',  # No disease translation
+                    'translation_method': 'none'
+                }
             }
         }
 
         logger.info(f"🎉 PIPELINE COMPLETE!")
         logger.info(f"   Final Disease: '{final_disease_name}' (always in English)")
         logger.info(f"   Final Language: '{final_lang}' (input language)")
-        logger.info(f"   Precautions Count: {len(final_precautions)} (always in Somali)")
+        logger.info(f"   Precautions Count: {len(final_precautions)} (in {final_lang} language)")
         
         return jsonify(response_data)
 
@@ -1711,8 +2144,125 @@ def health_check():
         'model_names': list(models.keys()),
         'model_weights': model_weights,
         'vectorizer_loaded': vectorizer is not None,
+        'label_encoder_loaded': label_encoder is not None,
+        'feature_scaler_loaded': feature_scaler is not None,
         'tensorflow_available': TENSORFLOW_AVAILABLE
     }), 200
+
+@app.route('/test-english-prediction', methods=['POST'])
+def test_english_prediction():
+    """
+    Test endpoint to debug English prediction issues
+    """
+    try:
+        data = request.get_json()
+        symptoms = data.get('symptoms', 'I have fever and headache')
+        
+        result = {
+            'symptoms': symptoms,
+            'models_loaded': len(models),
+            'model_names': list(models.keys()),
+            'vectorizer_loaded': vectorizer is not None,
+            'label_encoder_loaded': label_encoder is not None,
+            'feature_scaler_loaded': feature_scaler is not None,
+            'prediction_steps': {}
+        }
+        
+        # Step 1: Language detection
+        detected_lang = detect_language_fixed(symptoms, 'auto')
+        result['prediction_steps']['language_detection'] = {
+            'detected_language': detected_lang,
+            'success': True
+        }
+        
+        # Step 2: Symptom validation
+        rule_validation = validate_symptoms_rule_based(symptoms, detected_lang)
+        result['prediction_steps']['symptom_validation'] = {
+            'rule_based': rule_validation,
+            'success': rule_validation['is_valid']
+        }
+        
+        # Step 3: Create vector
+        try:
+            symptoms_vector = create_model_vector(symptoms)
+            result['prediction_steps']['vector_creation'] = {
+                'vector_shape': symptoms_vector.shape,
+                'non_zero_features': symptoms_vector.nnz,
+                'success': True
+            }
+        except Exception as e:
+            result['prediction_steps']['vector_creation'] = {
+                'error': str(e),
+                'success': False
+            }
+            return jsonify(result), 500
+        
+        # Step 4: Test each model individually
+        individual_predictions = {}
+        for model_name, model in models.items():
+            try:
+                if model_name == 'deep_nn':
+                    if feature_scaler is not None:
+                        dense_vector = symptoms_vector.toarray()[0]
+                        if len(dense_vector) < feature_scaler.n_features_in_:
+                            padded_vector = np.zeros(feature_scaler.n_features_in_)
+                            padded_vector[:len(dense_vector)] = dense_vector
+                            feature_vector = padded_vector.reshape(1, -1)
+                        elif len(dense_vector) > feature_scaler.n_features_in_:
+                            feature_vector = dense_vector[:feature_scaler.n_features_in_].reshape(1, -1)
+                        else:
+                            feature_vector = dense_vector.reshape(1, -1)
+                        
+                        scaled_features = feature_scaler.transform(feature_vector)
+                        prediction_probs = model.predict(scaled_features, verbose=0)
+                        prediction_index = np.argmax(prediction_probs[0])
+                        confidence = float(prediction_probs[0][prediction_index])
+                        prediction = label_encoder.inverse_transform([prediction_index])[0]
+                    else:
+                        individual_predictions[model_name] = {
+                            'error': 'Feature scaler not available',
+                            'success': False
+                        }
+                        continue
+                else:
+                    prediction = model.predict(symptoms_vector)[0]
+                    confidence_scores = model.predict_proba(symptoms_vector)[0]
+                    confidence = confidence_scores.max()
+                
+                individual_predictions[model_name] = {
+                    'prediction': prediction,
+                    'confidence': float(confidence),
+                    'success': True
+                }
+                
+            except Exception as e:
+                individual_predictions[model_name] = {
+                    'error': str(e),
+                    'success': False
+                }
+        
+        result['prediction_steps']['individual_predictions'] = individual_predictions
+        
+        # Step 5: Test ensemble prediction
+        try:
+            ensemble_result = ensemble_predict(symptoms_vector, symptoms, None, detected_lang)
+            result['prediction_steps']['ensemble_prediction'] = {
+                'prediction': ensemble_result['prediction'],
+                'confidence': float(ensemble_result['confidence']),
+                'avg_confidence': float(ensemble_result['avg_confidence']),
+                'model_count': ensemble_result['model_count'],
+                'success': True
+            }
+        except Exception as e:
+            result['prediction_steps']['ensemble_prediction'] = {
+                'error': str(e),
+                'success': False
+            }
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # Chat message endpoints
 @app.route('/chat/message', methods=['POST'])
@@ -1788,24 +2338,56 @@ def ensemble_predict(symptoms_vector, symptoms_text, somali_symptoms=None, detec
     # Get predictions from each model
     for model_name, model in models.items():
         try:
+            logger.info(f"🔍 DEBUG: Processing model: {model_name}")
+            
             if model_name == 'deep_nn':
                 # Deep neural network expects different input format
                 # Convert TF-IDF vector to feature vector for deep NN
-                feature_vector = np.zeros((1, feature_scaler.n_features_in_))
-                scaled_features = feature_scaler.transform(feature_vector)
-                
-                prediction_probs = model.predict(scaled_features, verbose=0)
-                prediction_index = np.argmax(prediction_probs[0])
-                confidence = float(prediction_probs[0][prediction_index])
-                
-                # Get disease name from label encoder
-                prediction = label_encoder.inverse_transform([prediction_index])[0]
+                if feature_scaler is not None:
+                    logger.info(f"🔍 DEBUG: Deep NN - Feature scaler available, n_features_in_: {feature_scaler.n_features_in_}")
+                    
+                    # Convert sparse TF-IDF vector to dense array
+                    dense_vector = symptoms_vector.toarray()[0]
+                    logger.info(f"🔍 DEBUG: Deep NN - Dense vector length: {len(dense_vector)}")
+                    
+                    # Pad or truncate to match feature scaler dimensions
+                    if len(dense_vector) < feature_scaler.n_features_in_:
+                        # Pad with zeros if vector is too short
+                        padded_vector = np.zeros(feature_scaler.n_features_in_)
+                        padded_vector[:len(dense_vector)] = dense_vector
+                        feature_vector = padded_vector.reshape(1, -1)
+                        logger.info(f"🔍 DEBUG: Deep NN - Padded vector to {feature_scaler.n_features_in_} features")
+                    elif len(dense_vector) > feature_scaler.n_features_in_:
+                        # Truncate if vector is too long
+                        feature_vector = dense_vector[:feature_scaler.n_features_in_].reshape(1, -1)
+                        logger.info(f"🔍 DEBUG: Deep NN - Truncated vector to {feature_scaler.n_features_in_} features")
+                    else:
+                        feature_vector = dense_vector.reshape(1, -1)
+                        logger.info(f"🔍 DEBUG: Deep NN - Vector length matches feature scaler")
+                    
+                    scaled_features = feature_scaler.transform(feature_vector)
+                    logger.info(f"🔍 DEBUG: Deep NN - Scaled features shape: {scaled_features.shape}")
+                    
+                    prediction_probs = model.predict(scaled_features, verbose=0)
+                    prediction_index = np.argmax(prediction_probs[0])
+                    confidence = float(prediction_probs[0][prediction_index])
+                    
+                    # Get disease name from label encoder
+                    prediction = label_encoder.inverse_transform([prediction_index])[0]
+                    logger.info(f"🔍 DEBUG: Deep NN - Prediction index: {prediction_index}, Disease: {prediction}")
+                else:
+                    logger.warning("⚠️ Feature scaler not available for deep NN, skipping")
+                    continue
                 
             else:
                 # Scikit-learn models
-                prediction = model.predict(symptoms_vector)[0]
+                logger.info(f"🔍 DEBUG: {model_name} - Using scikit-learn prediction")
+                raw_pred = model.predict(symptoms_vector)[0]
+                # Normalize possible numeric label to string disease name
+                prediction = normalize_disease_name(raw_pred)
                 confidence_scores = model.predict_proba(symptoms_vector)[0]
                 confidence = confidence_scores.max()
+                logger.info(f"🔍 DEBUG: {model_name} - Prediction: {prediction}, Confidence scores shape: {confidence_scores.shape}")
             
             predictions[model_name] = prediction
             confidences[model_name] = confidence
@@ -1814,6 +2396,7 @@ def ensemble_predict(symptoms_vector, symptoms_text, somali_symptoms=None, detec
             
         except Exception as e:
             logger.warning(f"⚠️ {model_name} prediction failed: {str(e)}")
+            logger.warning(f"⚠️ {model_name} error details: {type(e).__name__}: {str(e)}")
             continue
     
     if not predictions:
@@ -1844,8 +2427,9 @@ def ensemble_predict(symptoms_vector, symptoms_text, somali_symptoms=None, detec
     
     logger.info(f"🎯 ENSEMBLE RESULT: '{final_prediction}' (confidence: {final_confidence:.4f}, avg: {avg_confidence:.4f})")
     
-    # Apply Somali disease rules if input is Somali
-    if detected_lang == 'som' and somali_symptoms and DISEASE_RULES:
+    # Apply Somali disease rules if enabled and input is Somali
+    rules_enabled = os.getenv('ENABLE_SOMALI_RULES', 'false').lower() == 'true'
+    if rules_enabled and detected_lang == 'som' and somali_symptoms and DISEASE_RULES:
         logger.info(f"🔍 DEBUG: === SOMALI DISEASE RULES ACTIVATED ===")
         logger.info(f"🔍 DEBUG: Detected language: {detected_lang}")
         logger.info(f"🔍 DEBUG: Somali symptoms: '{somali_symptoms}'")
@@ -1894,20 +2478,36 @@ def ensemble_predict(symptoms_vector, symptoms_text, somali_symptoms=None, detec
         logger.info(f"🔍 DEBUG: Detected language: {detected_lang}")
         logger.info(f"🔍 DEBUG: Somali symptoms provided: {somali_symptoms is not None}")
         logger.info(f"🔍 DEBUG: Disease rules available: {bool(DISEASE_RULES)}")
+        logger.info(f"🔍 DEBUG: Rules enabled via env: {rules_enabled}")
         if detected_lang != 'som':
             logger.info(f"🔍 DEBUG: Skipping Somali rules - language is not Somali")
         elif not somali_symptoms:
             logger.info(f"🔍 DEBUG: Skipping Somali rules - no Somali symptoms provided")
         elif not DISEASE_RULES:
             logger.info(f"🔍 DEBUG: Skipping Somali rules - disease rules not available")
+        elif not rules_enabled:
+            logger.info(f"🔍 DEBUG: Skipping Somali rules - ENABLE_SOMALI_RULES is not true")
     
+    # Prepare detailed model info for UI
+    model_details = []
+    for model_key, pred in predictions.items():
+        model_details.append({
+            'key': model_key,
+            'name': model_display_names.get(model_key, model_key),
+            'prediction': normalize_disease_name(pred),
+            'confidence': float(confidences.get(model_key, 0.0)),
+            'weight': float(model_weights.get(model_key, 0.0)),
+            'effective_weight': float(model_weights.get(model_key, 0.0) * confidences.get(model_key, 0.0))
+        })
+
     return {
         'prediction': final_prediction,
         'confidence': final_confidence,
         'avg_confidence': avg_confidence,
         'individual_predictions': predictions,
         'individual_confidences': confidences,
-        'model_count': len(predictions)
+        'model_count': len(predictions),
+        'model_details': model_details
     }
 
 if __name__ == '__main__':

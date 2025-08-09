@@ -1,0 +1,109 @@
+DISEASE PREDICTION MODEL EVALUATION REPORT
+==================================================
+
+DATASET INFORMATION:
+--------------------
+Total Samples: 4423
+Number of Diseases: 8
+Average Symptoms per Case: 2.1
+Diseases: Common Cold, Diabetes, Fungal Infection, Malaria, Migraine, Pneumonia, Typhoid, Urinary Tract Infection
+
+MODEL PERFORMANCE SUMMARY:
+------------------------------
+RF:
+  Accuracy: 0.8734
+  F1-Score (Macro): 0.8706
+  F1-Score (Weighted): 0.8719
+
+GB:
+  Accuracy: 0.8655
+  F1-Score (Macro): 0.8636
+  F1-Score (Weighted): 0.8641
+
+LR:
+  Accuracy: 0.8791
+  F1-Score (Macro): 0.8763
+  F1-Score (Weighted): 0.8781
+
+SVM:
+  Accuracy: 0.8734
+  F1-Score (Macro): 0.8715
+  F1-Score (Weighted): 0.8727
+
+ENSEMBLE:
+  Accuracy: 0.8768
+  F1-Score (Macro): 0.8745
+  F1-Score (Weighted): 0.8761
+
+NEURAL_NETWORK:
+  Accuracy: 0.8791
+  F1-Score (Macro): 0.8763
+  F1-Score (Weighted): 0.8781
+
+COMBINED:
+  Accuracy: 0.8768
+  F1-Score (Macro): 0.8746
+  F1-Score (Weighted): 0.8762
+
+PER-CLASS PERFORMANCE:
+-------------------------
+Common Cold:
+  Precision: 0.8381
+  Recall: 0.8462
+  F1-Score: 0.8421
+  Support: 104
+
+Diabetes:
+  Precision: 0.9135
+  Recall: 0.9223
+  F1-Score: 0.9179
+  Support: 103
+
+Fungal Infection:
+  Precision: 0.9398
+  Recall: 1.0000
+  F1-Score: 0.9690
+  Support: 125
+
+Malaria:
+  Precision: 0.8182
+  Recall: 0.7627
+  F1-Score: 0.7895
+  Support: 118
+
+Migraine:
+  Precision: 0.7981
+  Recall: 0.7981
+  F1-Score: 0.7981
+  Support: 104
+
+Pneumonia:
+  Precision: 0.9725
+  Recall: 0.8548
+  F1-Score: 0.9099
+  Support: 124
+
+Typhoid:
+  Precision: 0.9145
+  Recall: 0.8560
+  F1-Score: 0.8843
+  Support: 125
+
+Urinary Tract Infection:
+  Precision: 0.7961
+  Recall: 1.0000
+  F1-Score: 0.8865
+  Support: 82
+
+TOP 10 MOST IMPORTANT FEATURES:
+-----------------------------------
+ 1. Symptom_Skin Rash: 0.1022
+ 2. Total_Symptoms: 0.0856
+ 3. Urinary_Score: 0.0666
+ 4. Symptom_Burning Sensation: 0.0592
+ 5. Symptom_Constipation: 0.0579
+ 6. Fever_Score: 0.0501
+ 7. Respiratory_Score: 0.0495
+ 8. GI_Score: 0.0459
+ 9. Symptom_Excessive Thirst: 0.0429
+10. Constitutional_Score: 0.0415
