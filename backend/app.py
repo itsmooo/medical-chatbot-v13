@@ -153,92 +153,229 @@ model_display_names = {}
 # Get the directory where this script is located for robust path handling
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Prefer newly trained realistic models
+# Load the newly trained fixed models (anti-overfitting)
 try:
-    models['realistic_single'] = joblib.load(os.path.join(script_dir, 'disease_models/realistic_single_model.pkl'))
-    model_weights['realistic_single'] = 0.45
-    model_display_names['realistic_single'] = f"Realistic Single ({models['realistic_single'].__class__.__name__})"
-    logger.info("✅ Realistic single model loaded")
+    models['fixed_ensemble'] = joblib.load(os.path.join(script_dir, 'disease_models/fixed_ensemble_model.pkl'))
+    model_weights['fixed_ensemble'] = 0.35
+    model_display_names['fixed_ensemble'] = f"Fixed Ensemble ({models['fixed_ensemble'].__class__.__name__})"
+    logger.info("✅ Fixed ensemble model loaded")
 except Exception as e:
-    logger.warning(f"⚠️ Failed to load realistic single model: {str(e)}")
+    logger.warning(f"⚠️ Failed to load fixed ensemble model: {str(e)}")
 
 try:
+    models['fixed_individual'] = joblib.load(os.path.join(script_dir, 'disease_models/fixed_individual_models.pkl'))
+    model_weights['fixed_individual'] = 0.30
+    model_display_names['fixed_individual'] = f"Fixed Individual Models ({models['fixed_individual'].__class__.__name__})"
+    logger.info("✅ Fixed individual models loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load fixed individual models: {str(e)}")
+
+# Load fallback models if fixed models fail
+if 'fixed_ensemble' not in models:
+    try:
+        models['fallback_ensemble'] = joblib.load(os.path.join(script_dir, 'disease_models/ensemble_model.pkl'))
+        model_weights['fallback_ensemble'] = 0.35
+        model_display_names['fallback_ensemble'] = f"Fallback Ensemble ({models['fallback_ensemble'].__class__.__name__})"
+        logger.info("✅ Fallback ensemble model loaded")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to load fallback ensemble model: {str(e)}")
+
+if 'fixed_individual' not in models:
+    try:
+        models['fallback_individual'] = joblib.load(os.path.join(script_dir, 'disease_models/individual_models.pkl'))
+        model_weights['fallback_individual'] = 0.30
+        model_display_names['fallback_individual'] = f"Fallback Individual Models ({models['fallback_individual'].__class__.__name__})"
+        logger.info("✅ Fallback individual models loaded")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to load fallback individual models: {str(e)}")
+
+# Load additional fallback models for better coverage
+try:
     models['realistic_ranking'] = joblib.load(os.path.join(script_dir, 'disease_models/realistic_ranking_model.pkl'))
-    model_weights['realistic_ranking'] = 0.25
+    model_weights['realistic_ranking'] = 0.20
     model_display_names['realistic_ranking'] = f"Realistic Ranking ({models['realistic_ranking'].__class__.__name__})"
     logger.info("✅ Realistic ranking model loaded")
 except Exception as e:
     logger.warning(f"⚠️ Failed to load realistic ranking model: {str(e)}")
 
-# Legacy/older models (kept for ensemble diversity if present)
-# Model 1: Scikit-learn model from models directory
 try:
-    models['sklearn'] = joblib.load(os.path.join(script_dir, 'models/disease_predictor.pkl'))
-    model_weights['sklearn'] = model_weights.get('sklearn', 0.15)
-    model_display_names['sklearn'] = f"Classic ({models['sklearn'].__class__.__name__})"
-    logger.info("✅ Scikit-learn model loaded")
+    models['realistic_single'] = joblib.load(os.path.join(script_dir, 'disease_models/realistic_single_model.pkl'))
+    model_weights['realistic_single'] = 0.15
+    model_display_names['realistic_single'] = f"Realistic Single ({models['realistic_single'].__class__.__name__})"
+    logger.info("✅ Realistic single model loaded")
 except Exception as e:
-    logger.warning(f"⚠️ Failed to load scikit-learn model: {str(e)}")
+    logger.warning(f"⚠️ Failed to load realistic single model: {str(e)}")
 
-# Model 2: Random Forest model from disease_models directory
+# Load legacy models for additional coverage
 try:
-    models['random_forest'] = joblib.load(os.path.join(script_dir, 'disease_models/random_forest_model.pkl'))
-    model_weights['random_forest'] = model_weights.get('random_forest', 0.15)
-    model_display_names['random_forest'] = f"Legacy RF ({models['random_forest'].__class__.__name__})"
+    models['ranking_model'] = joblib.load(os.path.join(script_dir, 'disease_models/ranking_model.pkl'))
+    model_weights['ranking_model'] = 0.10
+    model_display_names['ranking_model'] = f"Legacy Ranking ({models['ranking_model'].__class__.__name__})"
+    logger.info("✅ Legacy ranking model loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load legacy ranking model: {str(e)}")
+
+try:
+    models['single_disease_model'] = joblib.load(os.path.join(script_dir, 'disease_models/single_disease_model.pkl'))
+    model_weights['single_disease_model'] = 0.10
+    model_display_names['single_disease_model'] = f"Legacy Single ({models['single_disease_model'].__class__.__name__})"
+    logger.info("✅ Legacy single disease model loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load legacy single disease model: {str(e)}")
+
+# Load individual ML models for additional coverage
+try:
+    models['random_forest_model'] = joblib.load(os.path.join(script_dir, 'disease_models/random_forest_model.pkl'))
+    model_weights['random_forest_model'] = 0.08
+    model_display_names['random_forest_model'] = f"Random Forest ({models['random_forest_model'].__class__.__name__})"
     logger.info("✅ Random Forest model loaded")
 except Exception as e:
     logger.warning(f"⚠️ Failed to load Random Forest model: {str(e)}")
 
-# Model 3: SVM model from disease_models directory
 try:
-    models['svm'] = joblib.load(os.path.join(script_dir, 'disease_models/svm_model.pkl'))
-    model_weights['svm'] = model_weights.get('svm', 0.1)
-    model_display_names['svm'] = f"Legacy SVM ({models['svm'].__class__.__name__})"
+    models['svm_model'] = joblib.load(os.path.join(script_dir, 'disease_models/svm_model.pkl'))
+    model_weights['svm_model'] = 0.08
+    model_display_names['svm_model'] = f"SVM ({models['svm_model'].__class__.__name__})"
     logger.info("✅ SVM model loaded")
 except Exception as e:
     logger.warning(f"⚠️ Failed to load SVM model: {str(e)}")
 
-# Model 4: Deep Neural Network model (if TensorFlow is available)
+try:
+    models['logistic_regression_model'] = joblib.load(os.path.join(script_dir, 'disease_models/logistic_regression_model.pkl'))
+    model_weights['logistic_regression_model'] = 0.08
+    model_display_names['logistic_regression_model'] = f"Logistic Regression ({models['logistic_regression_model'].__class__.__name__})"
+    logger.info("✅ Logistic Regression model loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load Logistic Regression model: {str(e)}")
+
+# Load additional neural network models
+try:
+    models['deep_neural_network_model'] = keras.models.load_model(os.path.join(script_dir, 'disease_models/deep_neural_network_model.h5'))
+    model_weights['deep_neural_network_model'] = 0.12
+    model_display_names['deep_neural_network_model'] = "Deep Neural Network"
+    logger.info("✅ Deep Neural Network model loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load Deep Neural Network model: {str(e)}")
+
+try:
+    models['enhanced_disease_model'] = keras.models.load_model(os.path.join(script_dir, 'disease_models/enhanced_disease_model.h5'))
+    model_weights['enhanced_disease_model'] = 0.12
+    model_display_names['enhanced_disease_model'] = "Enhanced Disease Model"
+    logger.info("✅ Enhanced Disease Model loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load Enhanced Disease Model: {str(e)}")
+
+try:
+    models['best_model'] = keras.models.load_model(os.path.join(script_dir, 'disease_models/best_model.h5'))
+    model_weights['best_model'] = 0.10
+    model_display_names['best_model'] = "Best Model"
+    logger.info("✅ Best Model loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load Best Model: {str(e)}")
+
+try:
+    models['best_nn_model'] = keras.models.load_model(os.path.join(script_dir, 'disease_models/best_nn_model.h5'))
+    model_weights['best_nn_model'] = 0.10
+    model_display_names['best_nn_model'] = "Best NN Model"
+    logger.info("✅ Best NN Model loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load Best NN Model: {str(e)}")
+
+# Load bilingual models if available
+try:
+    # Note: These might be preprocessing components, not actual models
+    # We'll need to check what's actually in these files
+    bilingual_components = joblib.load(os.path.join(script_dir, 'disease_models/bilingual_label_encoder.pkl'))
+    logger.info(f"✅ Bilingual components loaded: {type(bilingual_components).__name__}")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load bilingual components: {str(e)}")
+
+try:
+    bilingual_vectorizer = joblib.load(os.path.join(script_dir, 'disease_models/bilingual_vectorizer.pkl'))
+    logger.info(f"✅ Bilingual vectorizer loaded: {type(bilingual_vectorizer).__name__}")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to load bilingual vectorizer: {str(e)}")
+
+# Load the fixed neural network model (if TensorFlow is available)
 if TENSORFLOW_AVAILABLE:
     try:
-        models['deep_nn'] = keras.models.load_model(os.path.join(script_dir, 'disease_models/deep_neural_network_model.h5'))
-        model_weights['deep_nn'] = model_weights.get('deep_nn', 0.05)
-        model_display_names['deep_nn'] = "Deep Neural Network"
-        logger.info("✅ Deep Neural Network model loaded")
+        models['fixed_nn'] = keras.models.load_model(os.path.join(script_dir, 'disease_models/fixed_disease_model.h5'))
+        model_weights['fixed_nn'] = 0.25
+        model_display_names['fixed_nn'] = "Fixed Neural Network"
+        logger.info("✅ Fixed Neural Network model loaded")
     except Exception as e:
-        logger.warning(f"⚠️ Failed to load Deep Neural Network model: {str(e)}")
+        logger.warning(f"⚠️ Failed to load Fixed Neural Network model: {str(e)}")
 
-# Load preprocessing components (prefer realistic components)
+# Load preprocessing components (use fixed components)
 try:
-    # Vectorizer
+    # Load fixed feature columns for binary feature models
+    try:
+        fixed_feature_cols = joblib.load(os.path.join(script_dir, 'disease_models/fixed_feature_columns.pkl'))
+        logger.info(f"✅ Loaded fixed feature columns: {len(fixed_feature_cols)} features")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to load fixed feature columns: {str(e)}")
+        fixed_feature_cols = None
+    
+    # Load fallback feature columns
+    try:
+        fallback_feature_cols = joblib.load(os.path.join(script_dir, 'disease_models/feature_columns.pkl'))
+        logger.info(f"✅ Loaded fallback feature columns: {len(fallback_feature_cols)} features")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to load fallback feature columns: {str(e)}")
+        fallback_feature_cols = None
+    
+    # Use fixed feature columns if available, otherwise fallback
+    feature_cols = fixed_feature_cols if fixed_feature_cols is not None else fallback_feature_cols
+    
+    # Vectorizer (for fallback TF-IDF models)
     try:
         vectorizer = joblib.load(os.path.join(script_dir, 'disease_models/realistic_vectorizer.pkl'))
-        logger.info("✅ Loaded realistic vectorizer")
-    except Exception:
-        vectorizer = joblib.load(os.path.join(script_dir, 'models/tfidf_vectorizer.pkl'))
-        logger.info("✅ Loaded legacy TF-IDF vectorizer")
+        logger.info("✅ Loaded realistic vectorizer for fallback models")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to load realistic vectorizer: {str(e)}")
+        try:
+            vectorizer = joblib.load(os.path.join(script_dir, 'models/tfidf_vectorizer.pkl'))
+            logger.info("✅ Loaded legacy TF-IDF vectorizer")
+        except Exception:
+            vectorizer = None
+            logger.warning("⚠️ No vectorizer available, some models may not work")
     
     # Label encoder
     try:
-        label_encoder = joblib.load(os.path.join(script_dir, 'disease_models/realistic_label_encoder.pkl'))
-        logger.info("✅ Loaded realistic label encoder")
-    except Exception:
+        label_encoder = joblib.load(os.path.join(script_dir, 'disease_models/fixed_label_encoder.pkl'))
+        logger.info("✅ Loaded fixed label encoder")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to load fixed label encoder: {str(e)}")
+        # Fallback to realistic label encoder
         try:
-            label_encoder = joblib.load(os.path.join(script_dir, 'disease_models/label_encoder.pkl'))
-            logger.info("✅ Loaded label encoder from disease_models directory")
-        except FileNotFoundError:
-            # Fallback to models directory
-            label_encoder = joblib.load(os.path.join(script_dir, 'models/medical_label_encoder_20250609_203011.pkl'))
-            logger.info("✅ Loaded label encoder from models directory")
+            label_encoder = joblib.load(os.path.join(script_dir, 'disease_models/realistic_label_encoder.pkl'))
+            logger.info("✅ Loaded fallback realistic label encoder")
+        except Exception:
+            try:
+                label_encoder = joblib.load(os.path.join(script_dir, 'disease_models/label_encoder.pkl'))
+                logger.info("✅ Loaded fallback label encoder from disease_models directory")
+            except FileNotFoundError:
+                # Final fallback to models directory
+                label_encoder = joblib.load(os.path.join(script_dir, 'models/medical_label_encoder_20250609_203011.pkl'))
+                logger.info("✅ Loaded fallback label encoder from models directory")
     
-    # Try to load feature scaler, but don't fail if it doesn't exist
+    # Load fixed feature scaler for neural network
     try:
-        feature_scaler = joblib.load(os.path.join(script_dir, 'disease_models/feature_scaler.pkl'))
+        feature_scaler = joblib.load(os.path.join(script_dir, 'disease_models/fixed_scaler.pkl'))
+        logger.info("✅ Loaded fixed feature scaler")
     except FileNotFoundError:
-        feature_scaler = None
-        logger.warning("⚠️ Feature scaler not found, deep NN model will be skipped")
+        # Fallback to legacy feature scaler
+        try:
+            feature_scaler = joblib.load(os.path.join(script_dir, 'disease_models/feature_scaler.pkl'))
+            logger.info("✅ Loaded fallback feature scaler")
+        except FileNotFoundError:
+            feature_scaler = None
+            logger.warning("⚠️ Feature scaler not found, neural network model will be skipped")
     
-    logger.info(f"✅ Preprocessing components loaded. Vectorizer vocabulary size: {len(vectorizer.vocabulary_)}")
+    if vectorizer:
+        logger.info(f"✅ Preprocessing components loaded. Vectorizer vocabulary size: {len(vectorizer.vocabulary_)}")
+    if feature_cols:
+        logger.info(f"✅ Feature columns loaded: {len(feature_cols)} features")
 except Exception as e:
     logger.error(f"❌ Failed to load preprocessing components: {str(e)}")
     raise
@@ -247,10 +384,57 @@ except Exception as e:
 if not models:
     raise ValueError("No models could be loaded!")
 
+# Normalize model weights to sum to 1.0
+total_weight = sum(model_weights.values())
+if total_weight > 0:
+    for model_name in model_weights:
+        model_weights[model_name] /= total_weight
+    logger.info(f"✅ Model weights normalized. Total weight: {total_weight:.3f}")
+else:
+    logger.warning("⚠️ No valid model weights found, using equal weights")
+    for model_name in model_weights:
+        model_weights[model_name] = 1.0 / len(model_weights)
+
+logger.info(f"🎯 Loaded {len(models)} models with weights: {model_weights}")
+
 logger.info(f"✅ Ensemble setup complete. Loaded {len(models)} models:")
 for model_name, weight in model_weights.items():
     display_name = model_display_names.get(model_name, model_name)
     logger.info(f"   - {model_name} ({display_name}): weight {weight}")
+
+# --- Utility: convert symptoms to binary features for fixed models ---
+def create_binary_feature_vector(symptoms_text, feature_cols):
+    """
+    Convert symptoms text to binary feature vector for fixed models
+    """
+    if not feature_cols:
+        logger.warning("⚠️ No feature columns available for binary feature conversion")
+        return None
+    
+    # Extract symptoms from text
+    symptoms = extract_symptoms_from_text_app(symptoms_text.lower())
+    
+    # Create binary feature vector
+    feature_vector = np.zeros(len(feature_cols))
+    
+    for i, feature_name in enumerate(feature_cols):
+        if feature_name == 'symptom_count':
+            feature_vector[i] = len(symptoms)
+        elif feature_name.startswith('Symptom_'):
+            symptom = feature_name.replace('Symptom_', '')
+            feature_vector[i] = 1 if symptom in symptoms else 0
+        elif feature_name.startswith('Pair_'):
+            # Handle symptom pairs (e.g., "Pair_fever_headache")
+            pair_parts = feature_name.replace('Pair_', '').split('_')
+            if len(pair_parts) >= 2:
+                symptom1, symptom2 = pair_parts[0], pair_parts[1]
+                feature_vector[i] = 1 if (symptom1 in symptoms and symptom2 in symptoms) else 0
+    
+    logger.info(f"🔍 DEBUG: Created binary feature vector with {len(feature_vector)} features")
+    logger.info(f"🔍 DEBUG: Symptoms found: {symptoms}")
+    logger.info(f"🔍 DEBUG: Feature vector sum: {feature_vector.sum()}")
+    
+    return feature_vector.reshape(1, -1)
 
 # --- Utility: normalize disease label to readable string ---
 def normalize_disease_name(disease_label):
@@ -269,41 +453,13 @@ def normalize_disease_name(disease_label):
     except Exception:
         return str(disease_label)
 
-# === Load Enhanced Feature-Based Best Model (from train_enhanced_models.py) ===
-enhanced_nn_model = None
-enhanced_feature_scaler = None
-enhanced_label_encoder = None
-enhanced_feature_columns = None
+# === Load Fixed Feature-Based Best Model (from train_fixed_models.py) ===
+fixed_nn_model = None
+fixed_feature_scaler = None
+fixed_label_encoder = None
+fixed_feature_columns = None
 
-try:
-    # Load Keras enhanced model
-    enhanced_model_path = os.path.join(script_dir, 'disease_models/enhanced_disease_model.h5')
-    if os.path.exists(enhanced_model_path) and TENSORFLOW_AVAILABLE:
-        enhanced_nn_model = keras.models.load_model(enhanced_model_path)
-        logger.info('✅ Enhanced NN model loaded')
-    else:
-        logger.info('ℹ️ Enhanced NN model not available or TensorFlow missing')
-    
-    # Load scaler/label encoder/feature columns saved with pickle
-    scaler_path = os.path.join(script_dir, 'disease_models/scaler.pkl')
-    if os.path.exists(scaler_path):
-        with open(scaler_path, 'rb') as f:
-            enhanced_feature_scaler = pickle.load(f)
-        logger.info('✅ Enhanced feature scaler loaded')
-    
-    le_path = os.path.join(script_dir, 'disease_models/label_encoder.pkl')
-    if os.path.exists(le_path):
-        with open(le_path, 'rb') as f:
-            enhanced_label_encoder = pickle.load(f)
-        logger.info('✅ Enhanced label encoder loaded')
-    
-    feat_cols_path = os.path.join(script_dir, 'disease_models/feature_columns.pkl')
-    if os.path.exists(feat_cols_path):
-        with open(feat_cols_path, 'rb') as f:
-            enhanced_feature_columns = pickle.load(f)
-        logger.info(f"✅ Enhanced feature columns loaded ({len(enhanced_feature_columns)})")
-except Exception as e:
-    logger.warning(f"⚠️ Failed to load enhanced artifacts: {e}")
+# Enhanced model loading removed - using ensemble models instead
 
 # Helpers to build enhanced features from raw English symptoms
 def extract_symptoms_from_text_app(symptoms_text: str):
@@ -375,60 +531,9 @@ def standardize_symptom_token(token_lower: str) -> str:
     # Default: title case cleaned token
     return token_lower.title().strip()
 
-ENH_COMBOS = [
-    ('Fever', 'Chills', 'Fever_Chills'),
-    ('Fever', 'Abdominal Pain', 'Fever_AbPain'),
-    ('Frequent Urination', 'Burning Sensation', 'UTI_Symptoms'),
-    ('Cough', 'Fever', 'Respiratory_Infection'),
-    ('Headache', 'Fever', 'Systemic_Infection'),
-    ('Fatigue', 'Fever', 'Acute_Illness'),
-    ('Cough', 'Chest Pain', 'Lower_Respiratory'),
-    ('Burning Sensation', 'Fever', 'UTI_Fever'),
-    ('Headache', 'Nausea', 'Neurological'),
-    ('Fever', 'Muscle Pain', 'Viral_Syndrome'),
-    ('Abdominal Pain', 'Nausea', 'GI_Distress'),
-    ('Fatigue', 'Dizziness', 'Systemic_Weakness'),
-    ('Excessive Thirst', 'Frequent Urination', 'Diabetes_Classic'),
-    ('Chest Pain', 'Shortness of Breath', 'Cardiopulmonary'),
-    ('Headache', 'Dizziness', 'Hypertensive_Crisis')
-]
+# Enhanced symptom combinations removed - not needed for ensemble models
 
-def build_enhanced_feature_vector(english_symptoms_text: str) -> np.ndarray:
-    # Standardize tokens
-    tokens = extract_symptoms_from_text_app(english_symptoms_text)
-    std = set(standardize_symptom_token(t.lower()) for t in tokens)
-    feature_values = {}
-    # Base symptom features
-    for col in enhanced_feature_columns:
-        if col.startswith('Symptom_'):
-            sym_name = col.replace('Symptom_', '')
-            feature_values[col] = 1 if sym_name in std else 0
-    # Combos
-    for a, b, combo in ENH_COMBOS:
-        col_name = f'Combo_{combo}'
-        if col_name in enhanced_feature_columns:
-            feature_values[col_name] = int((f'Symptom_{a}' in feature_values and feature_values[f'Symptom_{a}'] == 1) and (f'Symptom_{b}' in feature_values and feature_values[f'Symptom_{b}'] == 1))
-    # Scores
-    def get(col):
-        return feature_values.get(col, 0)
-    fever_symptoms = ['Symptom_Fever', 'Symptom_Chills', 'Symptom_Night Sweats']
-    respiratory_symptoms = ['Symptom_Cough', 'Symptom_Chest Pain', 'Symptom_Shortness of Breath']
-    gi_symptoms = ['Symptom_Abdominal Pain', 'Symptom_Nausea', 'Symptom_Vomiting', 'Symptom_Loss of Appetite']
-    urinary_symptoms = ['Symptom_Frequent Urination', 'Symptom_Burning Sensation']
-    neuro_symptoms = ['Symptom_Headache', 'Symptom_Dizziness', 'Symptom_Blurred Vision']
-    constitutional_symptoms = ['Symptom_Fatigue', 'Symptom_Weight Loss', 'Symptom_Muscle Pain']
-    feature_values['Fever_Score'] = sum(get(c) for c in fever_symptoms)
-    feature_values['Respiratory_Score'] = sum(get(c) for c in respiratory_symptoms)
-    feature_values['GI_Score'] = sum(get(c) for c in gi_symptoms)
-    feature_values['Urinary_Score'] = sum(get(c) for c in urinary_symptoms)
-    feature_values['Neuro_Score'] = sum(get(c) for c in neuro_symptoms)
-    feature_values['Constitutional_Score'] = sum(get(c) for c in constitutional_symptoms)
-    # Total symptoms
-    symptom_cols = [c for c in enhanced_feature_columns if c.startswith('Symptom_')]
-    feature_values['Total_Symptoms'] = sum(get(c) for c in symptom_cols)
-    # Build vector in correct order
-    vector = [feature_values.get(col, 0) for col in enhanced_feature_columns]
-    return np.array(vector, dtype=float)
+# Enhanced feature vector function removed - not needed for ensemble models
 
 # Disease-specific precautions (English)
 DISEASE_PRECAUTIONS = {
@@ -769,21 +874,7 @@ def create_model_vector(english_symptoms):
         logger.error(f"❌ Error creating vector: {str(e)}")
         return vectorizer.transform(["medical symptoms"])
 
-def create_enhanced_feature_vector_for_prediction(english_symptoms):
-    """Build enhanced feature vector for the enhanced NN path if artifacts exist"""
-    try:
-        if enhanced_feature_columns is None:
-            raise ValueError('Enhanced feature columns not loaded')
-        fv = build_enhanced_feature_vector(english_symptoms)
-        # Scale to match training
-        if enhanced_feature_scaler is not None:
-            fv_scaled = enhanced_feature_scaler.transform([fv])[0]
-        else:
-            fv_scaled = fv
-        return np.array([fv_scaled])
-    except Exception as e:
-        logger.warning(f"⚠️ Falling back to TF-IDF: {e}")
-        return None
+# Enhanced feature vector prediction function removed - not needed for ensemble models
 
 def translate_precautions(precautions, target_lang="so"):
     if target_lang == "en":
@@ -1489,56 +1580,34 @@ def predict():
 
         # STEP 4: ENSEMBLE MODEL PREDICTION
         try:
-            # Prefer enhanced NN when all artifacts are available
-            enhanced_vector = create_enhanced_feature_vector_for_prediction(english_symptoms) if enhanced_nn_model is not None else None
-            if enhanced_vector is not None and enhanced_nn_model is not None and enhanced_label_encoder is not None:
-                logger.info(f"🔍 DEBUG: Using enhanced NN path for prediction")
-                nn_probs = enhanced_nn_model.predict(enhanced_vector, verbose=0)[0]
-                nn_index = int(np.argmax(nn_probs))
-                prediction_english = enhanced_label_encoder.inverse_transform([nn_index])[0]
-                confidence = float(nn_probs[nn_index])
-                # Build a minimal ensemble_info for UI
-                ensemble_result = {
-                    'model_count': 1,
-                    'individual_predictions': {'enhanced_nn': prediction_english},
-                    'individual_confidences': {'enhanced_nn': confidence},
-                    'avg_confidence': confidence,
-                    'model_details': [{
-                        'key': 'enhanced_nn',
-                        'name': 'Enhanced Neural Network',
-                        'prediction': prediction_english,
-                        'confidence': confidence,
-                        'weight': 1.0,
-                        'effective_weight': confidence
-                    }]
-                }
-            else:
-                logger.info(f"🔍 DEBUG: Using TF-IDF ensemble path for prediction")
-                symptoms_vector = create_model_vector(english_symptoms)
-                logger.info(f"🔍 DEBUG: Created symptoms vector with shape: {symptoms_vector.shape}")
-                
-                # Use ensemble prediction with all available models and Somali disease rules
-                somali_symptoms_for_rules = symptoms if detected_lang == 'som' else None
-                
-                logger.info(f"🔍 DEBUG: === ENSEMBLE PREDICTION WITH DISEASE RULES ===")
-                logger.info(f"🔍 DEBUG: Detected language: {detected_lang}")
-                logger.info(f"🔍 DEBUG: Original symptoms: '{symptoms}'")
-                logger.info(f"🔍 DEBUG: English symptoms: '{english_symptoms}'")
-                logger.info(f"🔍 DEBUG: Somali symptoms for rules: '{somali_symptoms_for_rules}'")
-                logger.info(f"🔍 DEBUG: Disease rules available: {bool(DISEASE_RULES)}")
-                logger.info(f"🔍 DEBUG: Available models: {list(models.keys())}")
+            logger.info(f"🔍 DEBUG: Using ensemble prediction path")
+            symptoms_vector = create_model_vector(english_symptoms)
+            logger.info(f"🔍 DEBUG: Created symptoms vector with shape: {symptoms_vector.shape}")
+            
+            # Use ensemble prediction with all available models and Somali disease rules
+            somali_symptoms_for_rules = symptoms if detected_lang == 'som' else None
+            
+            logger.info(f"🔍 DEBUG: === ENSEMBLE PREDICTION WITH DISEASE RULES ===")
+            logger.info(f"🔍 DEBUG: Detected language: {detected_lang}")
+            logger.info(f"🔍 DEBUG: Original symptoms: '{symptoms}'")
+            logger.info(f"🔍 DEBUG: English symptoms: '{english_symptoms}'")
+            logger.info(f"🔍 DEBUG: Somali symptoms for rules: '{somali_symptoms_for_rules}'")
+            logger.info(f"🔍 DEBUG: Disease rules available: {bool(DISEASE_RULES)}")
+            logger.info(f"🔍 DEBUG: Available models: {list(models.keys())}")
+            if vectorizer:
                 logger.info(f"🔍 DEBUG: Vectorizer vocabulary size: {len(vectorizer.vocabulary_)}")
+            if label_encoder:
                 logger.info(f"🔍 DEBUG: Label encoder classes: {list(label_encoder.classes_)}")
-                
-                ensemble_result = ensemble_predict(
-                    symptoms_vector, 
-                    english_symptoms, 
-                    somali_symptoms=somali_symptoms_for_rules,
-                    detected_lang=detected_lang
-                )
-            if 'prediction' not in locals() or prediction_english is None:
-                prediction_english = ensemble_result['prediction']
-                confidence = ensemble_result['confidence']
+            
+            ensemble_result = ensemble_predict(
+                symptoms_vector, 
+                english_symptoms, 
+                somali_symptoms=somali_symptoms_for_rules,
+                detected_lang=detected_lang
+            )
+            
+            prediction_english = ensemble_result['prediction']
+            confidence = ensemble_result['confidence']
             
             logger.info(f"✅ ENSEMBLE PREDICTION: '{prediction_english}' (confidence: {confidence:.4f})")
             logger.info(f"📊 Used {ensemble_result['model_count']} models for prediction")
@@ -2201,7 +2270,7 @@ def test_english_prediction():
         individual_predictions = {}
         for model_name, model in models.items():
             try:
-                if model_name == 'deep_nn':
+                if model_name == 'fixed_nn':
                     if feature_scaler is not None:
                         dense_vector = symptoms_vector.toarray()[0]
                         if len(dense_vector) < feature_scaler.n_features_in_:
@@ -2340,33 +2409,20 @@ def ensemble_predict(symptoms_vector, symptoms_text, somali_symptoms=None, detec
         try:
             logger.info(f"🔍 DEBUG: Processing model: {model_name}")
             
-            if model_name == 'deep_nn':
-                # Deep neural network expects different input format
-                # Convert TF-IDF vector to feature vector for deep NN
-                if feature_scaler is not None:
-                    logger.info(f"🔍 DEBUG: Deep NN - Feature scaler available, n_features_in_: {feature_scaler.n_features_in_}")
+            if model_name == 'fixed_nn':
+                # Fixed neural network expects binary feature vector
+                if feature_scaler is not None and feature_cols is not None:
+                    logger.info(f"🔍 DEBUG: Fixed NN - Using binary feature vector")
                     
-                    # Convert sparse TF-IDF vector to dense array
-                    dense_vector = symptoms_vector.toarray()[0]
-                    logger.info(f"🔍 DEBUG: Deep NN - Dense vector length: {len(dense_vector)}")
+                    # Create binary feature vector from symptoms text
+                    binary_features = create_binary_feature_vector(symptoms_text, feature_cols)
+                    if binary_features is None:
+                        logger.warning("⚠️ Failed to create binary feature vector for fixed NN, skipping")
+                        continue
                     
-                    # Pad or truncate to match feature scaler dimensions
-                    if len(dense_vector) < feature_scaler.n_features_in_:
-                        # Pad with zeros if vector is too short
-                        padded_vector = np.zeros(feature_scaler.n_features_in_)
-                        padded_vector[:len(dense_vector)] = dense_vector
-                        feature_vector = padded_vector.reshape(1, -1)
-                        logger.info(f"🔍 DEBUG: Deep NN - Padded vector to {feature_scaler.n_features_in_} features")
-                    elif len(dense_vector) > feature_scaler.n_features_in_:
-                        # Truncate if vector is too long
-                        feature_vector = dense_vector[:feature_scaler.n_features_in_].reshape(1, -1)
-                        logger.info(f"🔍 DEBUG: Deep NN - Truncated vector to {feature_scaler.n_features_in_} features")
-                    else:
-                        feature_vector = dense_vector.reshape(1, -1)
-                        logger.info(f"🔍 DEBUG: Deep NN - Vector length matches feature scaler")
-                    
-                    scaled_features = feature_scaler.transform(feature_vector)
-                    logger.info(f"🔍 DEBUG: Deep NN - Scaled features shape: {scaled_features.shape}")
+                    # Scale features
+                    scaled_features = feature_scaler.transform(binary_features)
+                    logger.info(f"🔍 DEBUG: Fixed NN - Scaled features shape: {scaled_features.shape}")
                     
                     prediction_probs = model.predict(scaled_features, verbose=0)
                     prediction_index = np.argmax(prediction_probs[0])
@@ -2374,20 +2430,206 @@ def ensemble_predict(symptoms_vector, symptoms_text, somali_symptoms=None, detec
                     
                     # Get disease name from label encoder
                     prediction = label_encoder.inverse_transform([prediction_index])[0]
-                    logger.info(f"🔍 DEBUG: Deep NN - Prediction index: {prediction_index}, Disease: {prediction}")
+                    logger.info(f"🔍 DEBUG: Fixed NN - Prediction index: {prediction_index}, Disease: {prediction}")
                 else:
-                    logger.warning("⚠️ Feature scaler not available for deep NN, skipping")
+                    logger.warning("⚠️ Feature scaler or feature columns not available for fixed NN, skipping")
+                    continue
+                    
+            elif model_name in ['fixed_individual', 'fallback_individual']:
+                # Handle individual models (random_forest, logistic_regression, svm, etc.)
+                logger.info(f"🔍 DEBUG: {model_name} - Processing {len(model)} models")
+                
+                # Create binary feature vector for these models
+                binary_features = create_binary_feature_vector(symptoms_text, feature_cols)
+                if binary_features is None:
+                    logger.warning(f"⚠️ Failed to create binary feature vector for {model_name}, skipping")
+                    continue
+                
+                # Get predictions from each individual model
+                individual_predictions = {}
+                individual_confidences = {}
+                
+                for sub_model_name, sub_model in model.items():
+                    try:
+                        logger.info(f"🔍 DEBUG: Processing sub-model: {sub_model_name}")
+                        
+                        if hasattr(sub_model, 'predict_proba'):
+                            # Models with probability support
+                            raw_pred = sub_model.predict(binary_features)[0]
+                            prediction = normalize_disease_name(raw_pred)
+                            confidence_scores = sub_model.predict_proba(binary_features)[0]
+                            confidence = confidence_scores.max()
+                        else:
+                            # Models without probability support
+                            raw_pred = sub_model.predict(binary_features)[0]
+                            prediction = normalize_disease_name(raw_pred)
+                            confidence = 0.8  # Default confidence for models without proba
+                        
+                        individual_predictions[sub_model_name] = prediction
+                        individual_confidences[sub_model_name] = confidence
+                        logger.info(f"🔍 DEBUG: {sub_model_name} - Prediction: {prediction}, Confidence: {confidence:.4f}")
+                        
+                    except Exception as e:
+                        logger.warning(f"⚠️ Sub-model {sub_model_name} failed: {str(e)}")
+                        continue
+                
+                # Use the best prediction from individual models
+                if individual_predictions:
+                    best_model = max(individual_confidences, key=individual_confidences.get)
+                    prediction = individual_predictions[best_model]
+                    confidence = individual_confidences[best_model]
+                    logger.info(f"🔍 DEBUG: Best individual model: {best_model} with prediction: {prediction}")
+                else:
+                    logger.warning("⚠️ All individual models failed")
+                    continue
+                    
+            elif model_name in ['fixed_ensemble', 'fallback_ensemble']:
+                # Ensemble models also expect binary feature vector
+                logger.info(f"🔍 DEBUG: {model_name} - Using binary feature vector")
+                
+                binary_features = create_binary_feature_vector(symptoms_text, feature_cols)
+                if binary_features is None:
+                    logger.warning(f"⚠️ Failed to create binary feature vector for {model_name}, skipping")
+                    continue
+                
+                if hasattr(model, 'predict_proba'):
+                    raw_pred = model.predict(binary_features)[0]
+                    prediction = normalize_disease_name(raw_pred)
+                    confidence_scores = model.predict_proba(binary_features)[0]
+                    confidence = confidence_scores.max()
+                else:
+                    raw_pred = model.predict(binary_features)[0]
+                    prediction = normalize_disease_name(raw_pred)
+                    confidence = 0.8
+                
+                logger.info(f"🔍 DEBUG: {model_name} - Prediction: {prediction}, Confidence: {confidence:.4f}")
+                
+            elif model_name == 'realistic_ranking':
+                # Realistic ranking model expects binary feature vector
+                logger.info(f"🔍 DEBUG: {model_name} - Using binary feature vector")
+                
+                binary_features = create_binary_feature_vector(symptoms_text, feature_cols)
+                if binary_features is None:
+                    logger.warning(f"⚠️ Failed to create binary feature vector for {model_name}, skipping")
+                    continue
+                
+                if hasattr(model, 'predict_proba'):
+                    raw_pred = model.predict(binary_features)[0]
+                    prediction = normalize_disease_name(raw_pred)
+                    confidence_scores = model.predict_proba(binary_features)[0]
+                    confidence = confidence_scores.max()
+                else:
+                    raw_pred = model.predict(binary_features)[0]
+                    prediction = normalize_disease_name(raw_pred)
+                    confidence = 0.8
+                
+                logger.info(f"🔍 DEBUG: {model_name} - Prediction: {prediction}, Confidence: {confidence:.4f}")
+                
+            elif model_name == 'realistic_single':
+                # Realistic single model expects binary feature vector
+                logger.info(f"🔍 DEBUG: {model_name} - Using binary feature vector")
+                
+                binary_features = create_binary_feature_vector(symptoms_text, feature_cols)
+                if binary_features is None:
+                    logger.warning(f"⚠️ Failed to create binary feature vector for {model_name}, skipping")
+                    continue
+                
+                if hasattr(model, 'predict_proba'):
+                    raw_pred = model.predict(binary_features)[0]
+                    prediction = normalize_disease_name(raw_pred)
+                    confidence_scores = model.predict_proba(binary_features)[0]
+                    confidence = confidence_scores.max()
+                else:
+                    raw_pred = model.predict(binary_features)[0]
+                    prediction = normalize_disease_name(raw_pred)
+                    confidence = 0.8
+                
+                logger.info(f"🔍 DEBUG: {model_name} - Prediction: {prediction}, Confidence: {confidence:.4f}")
+                
+            elif model_name in ['ranking_model', 'single_disease_model']:
+                # Legacy ranking and single models expect binary feature vector
+                logger.info(f"🔍 DEBUG: {model_name} - Using binary feature vector")
+                
+                binary_features = create_binary_feature_vector(symptoms_text, feature_cols)
+                if binary_features is None:
+                    logger.warning(f"⚠️ Failed to create binary feature vector for {model_name}, skipping")
+                    continue
+                
+                if hasattr(model, 'predict_proba'):
+                    raw_pred = model.predict(binary_features)[0]
+                    prediction = normalize_disease_name(raw_pred)
+                    confidence_scores = model.predict_proba(binary_features)[0]
+                    confidence = confidence_scores.max()
+                else:
+                    raw_pred = model.predict(binary_features)[0]
+                    prediction = normalize_disease_name(raw_pred)
+                    confidence = 0.8
+                
+                logger.info(f"🔍 DEBUG: {model_name} - Prediction: {prediction}, Confidence: {confidence:.4f}")
+                
+            elif model_name in ['random_forest_model', 'svm_model', 'logistic_regression_model']:
+                # Individual ML models expect binary feature vector
+                logger.info(f"🔍 DEBUG: {model_name} - Using binary feature vector")
+                
+                binary_features = create_binary_feature_vector(symptoms_text, feature_cols)
+                if binary_features is None:
+                    logger.warning(f"⚠️ Failed to create binary feature vector for {model_name}, skipping")
+                    continue
+                
+                if hasattr(model, 'predict_proba'):
+                    raw_pred = model.predict(binary_features)[0]
+                    prediction = normalize_disease_name(raw_pred)
+                    confidence_scores = model.predict_proba(binary_features)[0]
+                    confidence = confidence_scores.max()
+                else:
+                    raw_pred = model.predict(binary_features)[0]
+                    prediction = normalize_disease_name(raw_pred)
+                    confidence = 0.8
+                
+                logger.info(f"🔍 DEBUG: {model_name} - Prediction: {prediction}, Confidence: {confidence:.4f}")
+                
+            elif model_name in ['deep_neural_network_model', 'enhanced_disease_model', 'best_model', 'best_nn_model']:
+                # Neural network models expect scaled features
+                logger.info(f"🔍 DEBUG: {model_name} - Using scaled features")
+                
+                if feature_scaler is not None and feature_cols is not None:
+                    # Create binary feature vector and scale it
+                    binary_features = create_binary_feature_vector(symptoms_text, feature_cols)
+                    if binary_features is None:
+                        logger.warning(f"⚠️ Failed to create binary feature vector for {model_name}, skipping")
+                        continue
+                    
+                    # Scale features
+                    scaled_features = feature_scaler.transform(binary_features)
+                    logger.info(f"🔍 DEBUG: {model_name} - Scaled features shape: {scaled_features.shape}")
+                    
+                    prediction_probs = model.predict(scaled_features, verbose=0)
+                    prediction_index = np.argmax(prediction_probs[0])
+                    confidence = float(prediction_probs[0][prediction_index])
+                    
+                    # Get disease name from label encoder
+                    if label_encoder is not None:
+                        prediction = label_encoder.inverse_transform([prediction_index])[0]
+                    else:
+                        prediction = f"disease_{prediction_index}"
+                    
+                    logger.info(f"🔍 DEBUG: {model_name} - Prediction index: {prediction_index}, Disease: {prediction}")
+                else:
+                    logger.warning(f"⚠️ Feature scaler or feature columns not available for {model_name}, skipping")
                     continue
                 
             else:
-                # Scikit-learn models
-                logger.info(f"🔍 DEBUG: {model_name} - Using scikit-learn prediction")
-                raw_pred = model.predict(symptoms_vector)[0]
-                # Normalize possible numeric label to string disease name
-                prediction = normalize_disease_name(raw_pred)
-                confidence_scores = model.predict_proba(symptoms_vector)[0]
-                confidence = confidence_scores.max()
-                logger.info(f"🔍 DEBUG: {model_name} - Prediction: {prediction}, Confidence scores shape: {confidence_scores.shape}")
+                # TF-IDF based models (fallback models)
+                if vectorizer is not None:
+                    logger.info(f"🔍 DEBUG: {model_name} - Using TF-IDF vector")
+                    raw_pred = model.predict(symptoms_vector)[0]
+                    prediction = normalize_disease_name(raw_pred)
+                    confidence_scores = model.predict_proba(symptoms_vector)[0]
+                    confidence = confidence_scores.max()
+                    logger.info(f"🔍 DEBUG: {model_name} - Prediction: {prediction}, Confidence scores shape: {confidence_scores.shape}")
+                else:
+                    logger.warning(f"⚠️ {model_name} requires vectorizer but none available, skipping")
+                    continue
             
             predictions[model_name] = prediction
             confidences[model_name] = confidence

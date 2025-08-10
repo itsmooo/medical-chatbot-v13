@@ -114,12 +114,7 @@ const ChatInterface = () => {
 
     // Disease with confidence - use the appropriate language version
     const diseaseName = lang === 'so' ? (data.disease_somali || data.disease) : (data.disease_english || data.disease);
-    // Show both English and Somali symptom text for clarity
-    const englishText = data.symptoms_english || data.symptoms_original || '';
-    const somaliText = data.symptoms_somali || data.symptoms_original || '';
-
-    response = `**Symptoms (English):** ${englishText}\n`;
-    response += `**Calaamadaha (Somali):** ${somaliText}\n\n`;
+    // Removed symptom display as requested
     response += `Based on your symptoms, you might be experiencing **${diseaseName}** (${confidencePercent}% confidence).\n\n`;
 
     // Add precautions based on selected language
