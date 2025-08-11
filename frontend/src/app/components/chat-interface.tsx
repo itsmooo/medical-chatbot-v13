@@ -8,6 +8,7 @@ import { Send, Activity, User, Loader2, AlertCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import axios from 'axios';
 import { getAuthUser, isAuthenticated } from '../lib/auth';
+import { languages, Language } from '../lib/languages';
 
 interface Message {
   id: string;
@@ -63,20 +64,25 @@ interface ApiResponse {
   translation_method?: string;
 }
 
-const ChatInterface = () => {
+interface ChatInterfaceProps {
+  language: Language;
+}
+
+const ChatInterface = ({ language }: ChatInterfaceProps) => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      text: "Hello, I'm HealthAI. Please describe any symptoms you're experiencing, and I'll help predict potential conditions.",
+      text: languages[language].welcomeMessage,
       sender: 'ai',
       timestamp: new Date(),
     },
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [language, setLanguage] = useState<'en' | 'so'>('so'); // Default to Somali
   const [predictions, setPredictions] = useState<Record<string, ApiResponse>>({}); // Store raw API responses by message ID
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const currentLang = languages[language];
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -102,11 +108,26 @@ const ChatInterface = () => {
         return msg;
       });
     });
-  }, [language]);
+  }, [language, predictions]);
 
-  const formatPredictionResponse = (data: ApiResponse, lang: 'en' | 'so' = 'en'): string => {
+  // Update welcome message when language changes
+  useEffect(() => {
+    setMessages(prevMessages => {
+      if (prevMessages.length > 0 && prevMessages[0].sender === 'ai') {
+        const updatedMessages = [...prevMessages];
+        updatedMessages[0] = {
+          ...updatedMessages[0],
+          text: currentLang.welcomeMessage
+        };
+        return updatedMessages;
+      }
+      return prevMessages;
+    });
+  }, [language, currentLang.welcomeMessage]);
+
+  const formatPredictionResponse = (data: ApiResponse, lang: Language = 'en'): string => {
     if (!data.disease || data.confidence <= 0) {
-      return "I couldn't make a confident prediction based on your symptoms.";
+      return currentLang.noPrediction;
     }
 
     let response = '';
@@ -115,15 +136,14 @@ const ChatInterface = () => {
     // Disease with confidence - use the appropriate language version
     const diseaseName = lang === 'so' ? (data.disease_somali || data.disease) : (data.disease_english || data.disease);
     // Removed symptom display as requested
-    response += `Based on your symptoms, you might be experiencing **${diseaseName}** (${confidencePercent}% confidence).\n\n`;
+    response += `${currentLang.predictionPrefix} **${diseaseName}** (${confidencePercent}% ${currentLang.confidence}).\n\n`;
 
     // Add precautions based on selected language
     // The backend now sends the correct language precautions directly
     const precautionsList = data.precautions;
-    const isSomali = lang === 'so';
     
     if (precautionsList && precautionsList.length > 0) {
-      response += `**${isSomali ? 'Taxaddarrada:' : 'Precautions:'}**\n`;
+      response += `**${currentLang.precautions}**\n`;
       precautionsList.forEach((prec) => {
         response += `• ${prec}\n`;
       });
@@ -133,7 +153,7 @@ const ChatInterface = () => {
     // Show model names used (human-friendly from backend)
     const details = data.ensemble_info?.model_details || [];
     if (details.length > 0) {
-      response += `**${isSomali ? 'Moodooyinka la adeegsaday:' : 'Models used:'}**\n`;
+      response += `**${currentLang.modelsUsed}**\n`;
       details.forEach((d) => {
         const confPct = Math.round((d.confidence || 0) * 100);
         response += `• ${d.name} — ${confPct}%\n`;
@@ -141,8 +161,7 @@ const ChatInterface = () => {
       response += '\n';
     }
 
-    response +=
-      '⚠️ **Important:** This is not a medical diagnosis. Please consult a healthcare professional for proper evaluation and treatment.';
+    response += currentLang.importantNote;
 
     return response;
   };
@@ -231,7 +250,7 @@ const ChatInterface = () => {
         }
       } else {
         // Handle error case
-        finalResponse = "I couldn't analyze your symptoms properly.";
+        finalResponse = currentLang.errorMessage;
         console.error('Unexpected response format:', response.data);
       }
 
@@ -260,23 +279,20 @@ const ChatInterface = () => {
     } catch (error) {
       console.error('Error in prediction:', error);
 
-      let errorMessage =
-        "I apologize, but I'm having trouble analyzing your symptoms right now.";
+      let errorMessage = currentLang.errorMessage;
 
       if (axios.isAxiosError(error)) {
         if (error.code === 'ECONNREFUSED') {
-          errorMessage =
-            'Cannot connect to the prediction service. Please make sure the backend server is running.';
+          errorMessage = currentLang.connectionError;
         } else if (error.response?.status === 500) {
-          errorMessage =
-            'The prediction service encountered an error. Please try again with different symptoms.';
+          errorMessage = currentLang.serviceError;
         } else if (error.response?.status === 400) {
           // Try to get the specific error message from the backend
           const errorData = error.response?.data;
           if (errorData && errorData.message) {
             errorMessage = errorData.message;
           } else {
-            errorMessage = 'Please provide valid symptom information.';
+            errorMessage = currentLang.invalidInput;
           }
         }
       }
@@ -346,23 +362,7 @@ const ChatInterface = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Activity className="w-5 h-5 text-blue-600" />
-            <h2 className="font-semibold text-slate-800">HealthAI Assistant</h2>
-          </div>
-          
-          {/* Language Toggle */}
-          <div className="flex items-center gap-1 bg-slate-200 rounded-full p-1">
-            <button
-              onClick={() => setLanguage('en')}
-              className={`text-xs px-3 py-1 rounded-full transition-colors ${language === 'en' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600'}`}
-            >
-              English
-            </button>
-            <button
-              onClick={() => setLanguage('so')}
-              className={`text-xs px-3 py-1 rounded-full transition-colors ${language === 'so' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600'}`}
-            >
-              Somali
-            </button>
+            <h2 className="font-semibold text-slate-800">{currentLang.aiAssistant}</h2>
           </div>
         </div>
       </div>
@@ -450,7 +450,7 @@ const ChatInterface = () => {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Describe your symptoms (e.g., headache, fever, nausea)..."
+            placeholder={currentLang.inputPlaceholder}
             className="pr-14 focus-visible:ring-red-500 border-slate-300"
             disabled={isTyping}
           />
@@ -467,8 +467,7 @@ const ChatInterface = () => {
           </Button>
         </div>
         <p className="text-xs text-slate-500 mt-2 text-center">
-          HealthAI is not a replacement for professional medical advice. Always
-          consult a healthcare provider.
+          {currentLang.disclaimer}
         </p>
       </div>
     </div>
