@@ -1,0 +1,10 @@
+model_type: Deep Neural Network
+accuracy: 0.9959183931350708
+training_date: 20250609_203011
+dataset_size: 4900
+features: 1953
+classes: 7
+model_file: medical_deep_model_20250609_203011.h5
+vectorizer_file: medical_vectorizer_20250609_203011.pkl
+encoder_file: medical_label_encoder_20250609_203011.pkl
+model_parameters: 6805767
